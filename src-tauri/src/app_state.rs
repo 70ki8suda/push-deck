@@ -26,6 +26,31 @@ pub struct ConfigRecoveryState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceEndpointDescriptor {
+    pub endpoint_id: String,
+    pub display_name: String,
+    pub is_push_3: bool,
+}
+
+impl DeviceEndpointDescriptor {
+    pub fn push_3(endpoint_id: impl Into<String>, display_name: impl Into<String>) -> Self {
+        Self {
+            endpoint_id: endpoint_id.into(),
+            display_name: display_name.into(),
+            is_push_3: true,
+        }
+    }
+
+    pub fn other(endpoint_id: impl Into<String>, display_name: impl Into<String>) -> Self {
+        Self {
+            endpoint_id: endpoint_id.into(),
+            display_name: display_name.into(),
+            is_push_3: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigLoadState {
     Loaded,
@@ -36,7 +61,16 @@ pub enum ConfigLoadState {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum DeviceConnectionState {
     WaitingForDevice,
-    Connected { device_name: String },
+    Connected { endpoint: DeviceEndpointDescriptor },
+}
+
+impl DeviceConnectionState {
+    pub fn endpoint(&self) -> Option<&DeviceEndpointDescriptor> {
+        match self {
+            Self::Connected { endpoint } => Some(endpoint),
+            Self::WaitingForDevice => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

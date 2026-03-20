@@ -1,60 +1,58 @@
-use crate::app_state::{AppState, DeviceConnectionState, ShortcutCapabilityState, RuntimeState};
+use crate::app_state::{AppState, DeviceConnectionState, DeviceEndpointDescriptor};
 use crate::events::{emit_runtime_event, RuntimeEvent};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Runtime};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeviceCandidate {
-    pub name: String,
-    pub is_push_3: bool,
+pub struct DeviceDiscoveryBackendError {
+    pub message: String,
 }
 
-impl DeviceCandidate {
-    pub fn push_3(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            is_push_3: true,
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeviceDiscoveryError {
+    Backend(DeviceDiscoveryBackendError),
+}
 
-    pub fn other(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            is_push_3: false,
-        }
+impl DeviceDiscoveryError {
+    pub fn backend(message: impl Into<String>) -> Self {
+        Self::Backend(DeviceDiscoveryBackendError::new(message))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceDiscoveryResult {
     pub app_state: AppState,
-    pub device_state: DeviceConnectionState,
-    pub active_device: Option<String>,
+    pub connection: DeviceConnectionState,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DeviceDiscoveryError;
-
 pub trait DeviceDiscoverySource {
-    fn discover_devices(&self) -> Vec<DeviceCandidate>;
+    fn discover_devices(&self) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError>;
+}
+
+impl DeviceDiscoveryBackendError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct PushDeviceService<S> {
     source: S,
-    active_device: Option<String>,
+    active_endpoint: Option<DeviceEndpointDescriptor>,
 }
 
 impl<S> PushDeviceService<S> {
     pub fn new(source: S) -> Self {
         Self {
             source,
-            active_device: None,
+            active_endpoint: None,
         }
     }
 
-    pub fn active_device(&self) -> Option<&str> {
-        self.active_device.as_deref()
+    pub fn active_endpoint(&self) -> Option<&DeviceEndpointDescriptor> {
+        self.active_endpoint.as_ref()
     }
 }
 
@@ -63,30 +61,25 @@ where
     S: DeviceDiscoverySource,
 {
     pub fn discover(&mut self) -> Result<DeviceDiscoveryResult, DeviceDiscoveryError> {
-        let result = discover_push_device(self.source.discover_devices());
-        self.active_device = result.active_device.clone();
+        let result = discover_push_device(self.source.discover_devices()?);
+        self.active_endpoint = result.connection.endpoint().cloned();
         Ok(result)
     }
 }
 
-pub fn discover_push_device(candidates: Vec<DeviceCandidate>) -> DeviceDiscoveryResult {
+pub fn discover_push_device(candidates: Vec<DeviceEndpointDescriptor>) -> DeviceDiscoveryResult {
     let active_device = candidates
         .into_iter()
-        .find(|candidate| candidate.is_push_3)
-        .map(|candidate| candidate.name);
+        .find(|candidate| candidate.is_push_3);
 
     match active_device {
-        Some(device_name) => DeviceDiscoveryResult {
+        Some(endpoint) => DeviceDiscoveryResult {
             app_state: AppState::Ready,
-            device_state: DeviceConnectionState::Connected {
-                device_name: device_name.clone(),
-            },
-            active_device: Some(device_name),
+            connection: DeviceConnectionState::Connected { endpoint },
         },
         None => DeviceDiscoveryResult {
             app_state: AppState::WaitingForDevice,
-            device_state: DeviceConnectionState::WaitingForDevice,
-            active_device: None,
+            connection: DeviceConnectionState::WaitingForDevice,
         },
     }
 }
@@ -101,16 +94,12 @@ where
 {
     emit_runtime_event(
         emitter,
-        RuntimeEvent::StateChanged {
-            state: RuntimeState::new(result.app_state, ShortcutCapabilityState::Unavailable),
-        },
-    )?;
-
-    emit_runtime_event(
-        emitter,
         RuntimeEvent::DeviceConnectionChanged {
-            connected: matches!(result.device_state, DeviceConnectionState::Connected { .. }),
-            device_name: result.active_device.clone(),
+            connected: matches!(result.connection, DeviceConnectionState::Connected { .. }),
+            device_name: result
+                .connection
+                .endpoint()
+                .map(|endpoint| endpoint.display_name.clone()),
         },
     )?;
 
