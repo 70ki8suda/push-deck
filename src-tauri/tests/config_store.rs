@@ -1,6 +1,11 @@
 use push_deck::app_state::{ConfigLoadState, ConfigRecoveryState};
-use push_deck::config::schema::Config;
-use push_deck::config::store::{ConfigStore, ConfigStoreBackend, ConfigStoreError};
+use push_deck::config::schema::{
+    AppSettings, Config, LayoutProfile, PadAction, PadBinding, PadColorId, ShortcutKey,
+    ShortcutModifier, DEFAULT_PROFILE_ID,
+};
+use push_deck::config::store::{
+    ConfigLoadOutcome, ConfigStore, ConfigStoreBackend, ConfigStoreError,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -11,6 +16,10 @@ fn missing_config_file_is_initialized_with_default_and_written_to_disk() {
     let store = ConfigStore::with_backend(path("config.json"), backend.clone());
 
     let result = store.load().expect("missing config should initialize");
+
+    let ConfigLoadOutcome::Ready(result) = result else {
+        panic!("expected ready outcome for missing config");
+    };
 
     assert_eq!(result.state, ConfigLoadState::CreatedDefault);
     assert_eq!(result.config, Config::default());
@@ -35,6 +44,10 @@ fn valid_config_file_loads_without_recovery() {
 
     let result = store.load().expect("valid config should load");
 
+    let ConfigLoadOutcome::Ready(result) = result else {
+        panic!("expected ready outcome for valid config");
+    };
+
     assert_eq!(result.state, ConfigLoadState::Loaded);
     assert_eq!(result.config, config);
 }
@@ -47,8 +60,8 @@ fn broken_json_is_moved_to_timestamped_backup_and_reports_recovery() {
 
     let result = store.load().expect("broken config should enter recovery");
 
-    let ConfigLoadState::RecoveryRequired(recovery) = result.state else {
-        panic!("expected recovery state");
+    let ConfigLoadOutcome::RecoveryRequired(recovery) = result else {
+        panic!("expected recovery outcome");
     };
 
     assert_eq!(
@@ -64,6 +77,7 @@ fn broken_json_is_moved_to_timestamped_backup_and_reports_recovery() {
         backend.file_contents(&path("config.broken-1700000000000.json")),
         Some("{ not json".to_string())
     );
+    assert!(backend.file_contents(&path("config.json")).is_none());
 }
 
 #[test]
@@ -81,6 +95,69 @@ fn atomic_save_failure_keeps_existing_file_contents_unchanged() {
     assert_eq!(
         backend.file_contents(&path("config.json")),
         Some("previous contents".to_string())
+    );
+}
+
+#[test]
+fn invalid_config_is_rejected_before_any_write() {
+    let backend = TestBackend::default();
+    backend.write_existing(path("config.json"), "previous contents");
+    let store = ConfigStore::with_backend(path("config.json"), backend.clone());
+
+    let invalid_config = Config {
+        schema_version: 1,
+        settings: AppSettings {
+            active_profile_id: DEFAULT_PROFILE_ID.to_string(),
+        },
+        profiles: vec![LayoutProfile {
+            id: DEFAULT_PROFILE_ID.to_string(),
+            name: "Default".to_string(),
+            pads: vec![PadBinding {
+                pad_id: "invalid-pad".to_string(),
+                label: String::new(),
+                color: PadColorId::Off,
+                action: PadAction::Unassigned,
+            }],
+        }],
+    };
+
+    let error = store
+        .save(&invalid_config)
+        .expect_err("invalid config should be rejected before write");
+
+    assert!(matches!(error, ConfigStoreError::InvalidConfig(_)));
+    assert_eq!(
+        backend.file_contents(&path("config.json")),
+        Some("previous contents".to_string())
+    );
+    assert!(backend
+        .file_contents(&path("config.json.tmp-1700000000000"))
+        .is_none());
+}
+
+#[test]
+fn valid_config_is_normalized_before_write() {
+    let backend = TestBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend.clone());
+
+    let mut config = Config::default();
+    config.profiles[0].pads[0].action = PadAction::SendShortcut {
+        key: ShortcutKey::A,
+        modifiers: vec![ShortcutModifier::Ctrl, ShortcutModifier::Cmd],
+    };
+
+    store
+        .save(&config)
+        .expect("valid config should be normalized and saved");
+
+    let saved = backend
+        .file_contents(&path("config.json"))
+        .expect("config should be written");
+    let saved_value: serde_json::Value = serde_json::from_str(&saved).expect("saved json");
+
+    assert_eq!(
+        saved_value["profiles"][0]["pads"][0]["action"]["modifiers"],
+        serde_json::json!(["Cmd", "Ctrl"])
     );
 }
 

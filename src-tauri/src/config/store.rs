@@ -1,5 +1,5 @@
 use crate::app_state::{ConfigLoadState, ConfigRecoveryState};
-use crate::config::schema::{Config, SCHEMA_VERSION};
+use crate::config::schema::{Config, SCHEMA_VERSION, DEFAULT_PROFILE_ID};
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::fs;
@@ -11,6 +11,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct ConfigLoadResult {
     pub config: Config,
     pub state: ConfigLoadState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigLoadOutcome {
+    Ready(ConfigLoadResult),
+    RecoveryRequired(ConfigRecoveryState),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,23 +128,24 @@ impl<B: ConfigStoreBackend> ConfigStore<B> {
         }
     }
 
-    pub fn load(&self) -> Result<ConfigLoadResult, ConfigStoreError> {
+    pub fn load(&self) -> Result<ConfigLoadOutcome, ConfigStoreError> {
         match self.backend.read_to_string(&self.path) {
             Ok(contents) => self.load_from_contents(contents),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let config = Config::default();
                 self.save(&config)?;
-                Ok(ConfigLoadResult {
+                Ok(ConfigLoadOutcome::Ready(ConfigLoadResult {
                     config,
                     state: ConfigLoadState::CreatedDefault,
-                })
+                }))
             }
             Err(error) => Err(ConfigStoreError::Io(error.to_string())),
         }
     }
 
     pub fn save(&self, config: &Config) -> Result<(), ConfigStoreError> {
-        let serialized = serde_json::to_string_pretty(config)
+        let config = self.normalize_for_save(config)?;
+        let serialized = serde_json::to_string_pretty(&config)
             .map_err(|error| ConfigStoreError::Parse(error.to_string()))?;
         let temp_path = self.temp_path();
 
@@ -169,7 +176,7 @@ impl<B: ConfigStoreBackend> ConfigStore<B> {
         }
     }
 
-    fn load_from_contents(&self, contents: String) -> Result<ConfigLoadResult, ConfigStoreError> {
+    fn load_from_contents(&self, contents: String) -> Result<ConfigLoadOutcome, ConfigStoreError> {
         let parsed = match serde_json::from_str::<Config>(&contents) {
             Ok(parsed) => parsed,
             Err(_) => {
@@ -191,29 +198,48 @@ impl<B: ConfigStoreBackend> ConfigStore<B> {
             }
         };
 
-        Ok(ConfigLoadResult {
+        Ok(ConfigLoadOutcome::Ready(ConfigLoadResult {
             config,
             state: ConfigLoadState::Loaded,
-        })
+        }))
     }
 
-    fn enter_recovery(&self, reason: String) -> Result<ConfigLoadResult, ConfigStoreError> {
+    fn enter_recovery(&self, reason: String) -> Result<ConfigLoadOutcome, ConfigStoreError> {
         let backup_path = self.broken_backup_path();
 
         self.backend
             .rename(&self.path, &backup_path)
             .map_err(|error| ConfigStoreError::Io(error.to_string()))?;
 
-        let state = ConfigLoadState::RecoveryRequired(ConfigRecoveryState {
+        let state = ConfigRecoveryState {
             config_path: self.path.clone(),
             backup_path: backup_path.clone(),
             reason,
-        });
+        };
 
-        Ok(ConfigLoadResult {
-            config: Config::default(),
-            state,
-        })
+        Ok(ConfigLoadOutcome::RecoveryRequired(state))
+    }
+
+    fn normalize_for_save(&self, config: &Config) -> Result<Config, ConfigStoreError> {
+        if config.schema_version != SCHEMA_VERSION {
+            return Err(ConfigStoreError::InvalidSchemaVersion(config.schema_version));
+        }
+
+        if config.profiles.len() != 1 {
+            return Err(ConfigStoreError::InvalidConfig(
+                "v1 config must contain exactly one profile".to_string(),
+            ));
+        }
+
+        let profile = config.profiles.first().expect("profile length checked above");
+        if profile.id != DEFAULT_PROFILE_ID {
+            return Err(ConfigStoreError::InvalidConfig(
+                "v1 config must use the default profile".to_string(),
+            ));
+        }
+
+        Config::from_parts(config.settings.clone(), vec![profile.clone()])
+            .map_err(|error| ConfigStoreError::InvalidConfig(error.to_string()))
     }
 
     fn temp_path(&self) -> PathBuf {

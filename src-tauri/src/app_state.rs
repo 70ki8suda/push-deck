@@ -30,7 +30,6 @@ pub struct ConfigRecoveryState {
 pub enum ConfigLoadState {
     Loaded,
     CreatedDefault,
-    RecoveryRequired(ConfigRecoveryState),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
