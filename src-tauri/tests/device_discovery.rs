@@ -1,4 +1,7 @@
-use push_deck::app_state::{AppState, DeviceConnectionState, DeviceEndpointDescriptor};
+use push_deck::app_state::{
+    AppState, DeviceConnectionState, DeviceEndpointDescriptor, RuntimeCapabilities, RuntimeState,
+    ShortcutCapabilityState,
+};
 use push_deck::device::discovery::{
     discover_push_device, emit_discovery_state, DeviceDiscoveryError, DeviceDiscoverySource,
     PushDeviceService,
@@ -88,16 +91,39 @@ fn discovery_state_is_emitted_as_device_owned_runtime_event_only() {
         "endpoint-123",
         "Ableton Push 3",
     )]);
-    emit_discovery_state(&app, &state).expect("emission should succeed");
+    let runtime_state = RuntimeState {
+        app_state: AppState::Starting,
+        capabilities: RuntimeCapabilities {
+            shortcut: ShortcutCapabilityState::Available,
+        },
+    };
+    emit_discovery_state(&app, &state, &runtime_state).expect("emission should succeed");
 
-    let payload: serde_json::Value = rx
+    let state_payload: serde_json::Value = rx
+        .recv()
+        .expect("state event")
+        .parse()
+        .expect("state event json");
+    let connection_payload: serde_json::Value = rx
         .recv()
         .expect("device connection event")
         .parse()
         .expect("device connection event json");
 
     assert_eq!(
-        payload,
+        state_payload,
+        json!({
+            "type": "state_changed",
+            "state": {
+                "app_state": "ready",
+                "capabilities": {
+                    "shortcut": "available"
+                }
+            }
+        })
+    );
+    assert_eq!(
+        connection_payload,
         json!({
             "type": "device_connection_changed",
             "connected": true,
@@ -106,7 +132,7 @@ fn discovery_state_is_emitted_as_device_owned_runtime_event_only() {
     );
     assert!(
         rx.recv_timeout(Duration::from_millis(100)).is_err(),
-        "discovery should not emit unrelated runtime state"
+        "discovery should emit only the canonical state and device events"
     );
 }
 

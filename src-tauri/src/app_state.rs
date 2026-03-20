@@ -91,4 +91,11 @@ impl RuntimeState {
             capabilities: RuntimeCapabilities { shortcut },
         }
     }
+
+    pub fn with_app_state(&self, app_state: AppState) -> Self {
+        Self {
+            app_state,
+            capabilities: self.capabilities.clone(),
+        }
+    }
 }

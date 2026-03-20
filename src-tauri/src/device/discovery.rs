@@ -1,4 +1,4 @@
-use crate::app_state::{AppState, DeviceConnectionState, DeviceEndpointDescriptor};
+use crate::app_state::{AppState, DeviceConnectionState, DeviceEndpointDescriptor, RuntimeState};
 use crate::events::{emit_runtime_event, RuntimeEvent};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Runtime};
@@ -87,11 +87,19 @@ pub fn discover_push_device(candidates: Vec<DeviceEndpointDescriptor>) -> Device
 pub fn emit_discovery_state<R, E>(
     emitter: &E,
     result: &DeviceDiscoveryResult,
+    runtime_state: &RuntimeState,
 ) -> tauri::Result<()>
 where
     R: Runtime,
     E: Emitter<R>,
 {
+    emit_runtime_event(
+        emitter,
+        RuntimeEvent::StateChanged {
+            state: runtime_state.with_app_state(result.app_state),
+        },
+    )?;
+
     emit_runtime_event(
         emitter,
         RuntimeEvent::DeviceConnectionChanged {
