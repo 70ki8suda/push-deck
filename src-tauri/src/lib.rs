@@ -1,5 +1,6 @@
 pub mod app_state;
 pub mod config;
+pub mod device;
 pub mod display;
 pub mod events;
 

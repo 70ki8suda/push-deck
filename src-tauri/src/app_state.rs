@@ -33,6 +33,13 @@ pub enum ConfigLoadState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DeviceConnectionState {
+    WaitingForDevice,
+    Connected { device_name: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeCapabilities {
     pub shortcut: ShortcutCapabilityState,
 }
