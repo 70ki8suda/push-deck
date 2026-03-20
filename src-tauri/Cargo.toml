@@ -10,7 +10,7 @@ name = "push_deck"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-tauri = { version = "2.10.3" }
+tauri = { version = "2.10.3", features = [] }
 
 [build-dependencies]
-tauri-build = { version = "2.5.6" }
+tauri-build = { version = "2.5.6", features = [] }

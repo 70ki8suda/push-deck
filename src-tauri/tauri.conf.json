@@ -1,7 +1,7 @@
 {
   "productName": "Push Deck",
   "version": "0.1.0",
-  "identifier": "com.pushdeck.app",
+  "identifier": "com.pushdeck.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
