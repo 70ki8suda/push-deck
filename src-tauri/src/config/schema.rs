@@ -149,7 +149,9 @@ pub enum PadColorId {
 pub enum PadAction {
     Unassigned,
     LaunchOrFocusApp {
+        #[serde(rename = "bundleId")]
         bundle_id: String,
+        #[serde(rename = "appName")]
         app_name: String,
     },
     SendShortcut {
@@ -256,15 +258,32 @@ pub struct ShortcutSpec {
 
 impl ShortcutSpec {
     pub fn validate(&self) -> Result<(), ConfigError> {
-        let mut modifiers = self.modifiers.clone();
-        modifiers.sort_by_key(|modifier| modifier.sort_order());
-        modifiers.dedup();
+        validate_shortcut_modifiers(&self.modifiers).map(|_| ())
+    }
+}
 
-        if modifiers.len() != self.modifiers.len() {
-            return Err(ConfigError::InvalidShortcutModifiers);
+impl PadAction {
+    fn validate_and_normalize(&mut self) -> Result<(), ConfigError> {
+        match self {
+            Self::Unassigned => Ok(()),
+            Self::LaunchOrFocusApp {
+                bundle_id,
+                app_name,
+            } => {
+                if bundle_id.trim().is_empty() || app_name.trim().is_empty() {
+                    return Err(ConfigError::InvalidActionPayload(
+                        "launch_or_focus_app requires bundleId and appName".to_string(),
+                    ));
+                }
+
+                Ok(())
+            }
+            Self::SendShortcut { modifiers, .. } => {
+                let normalized = validate_shortcut_modifiers(modifiers)?;
+                *modifiers = normalized;
+                Ok(())
+            }
         }
-
-        Ok(())
     }
 }
 
@@ -273,6 +292,7 @@ pub enum ConfigError {
     InvalidPadId(String),
     DuplicatePadId(String),
     InvalidShortcutModifiers,
+    InvalidActionPayload(String),
 }
 
 impl Display for ConfigError {
@@ -281,6 +301,9 @@ impl Display for ConfigError {
             Self::InvalidPadId(pad_id) => write!(f, "invalid padId: {pad_id}"),
             Self::DuplicatePadId(pad_id) => write!(f, "duplicate padId: {pad_id}"),
             Self::InvalidShortcutModifiers => f.write_str("invalid shortcut modifiers"),
+            Self::InvalidActionPayload(message) => {
+                write!(f, "invalid action payload: {message}")
+            }
         }
     }
 }
@@ -296,6 +319,8 @@ fn normalize_profile(profile: LayoutProfile) -> Result<LayoutProfile, ConfigErro
         }
 
         let pad_id = binding.pad_id.clone();
+        let mut binding = binding;
+        binding.action.validate_and_normalize()?;
         if provided.insert(pad_id.clone(), binding).is_some() {
             return Err(ConfigError::DuplicatePadId(pad_id));
         }
@@ -315,4 +340,18 @@ fn normalize_profile(profile: LayoutProfile) -> Result<LayoutProfile, ConfigErro
         name: profile.name,
         pads,
     })
+}
+
+fn validate_shortcut_modifiers(
+    modifiers: &[ShortcutModifier],
+) -> Result<Vec<ShortcutModifier>, ConfigError> {
+    let mut normalized = modifiers.to_vec();
+    normalized.sort_by_key(|modifier| modifier.sort_order());
+    normalized.dedup();
+
+    if normalized.len() != modifiers.len() {
+        return Err(ConfigError::InvalidShortcutModifiers);
+    }
+
+    Ok(normalized)
 }

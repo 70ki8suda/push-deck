@@ -1,5 +1,6 @@
 use push_deck::config::schema::{
-    AppSettings, Config, LayoutProfile, PadAction, PadBinding, PadColorId, ShortcutSpec,
+    AppSettings, Config, LayoutProfile, PadAction, PadBinding, PadColorId, ShortcutKey,
+    ShortcutModifier, ShortcutSpec,
 };
 use serde_json::json;
 
@@ -127,4 +128,65 @@ fn invalid_shortcut_modifier_and_key_are_rejected() {
         "key": "F13"
     }));
     assert!(invalid_key.is_err());
+}
+
+#[test]
+fn launch_or_focus_app_serializes_with_camel_case_field_names() {
+    let action = PadAction::LaunchOrFocusApp {
+        bundle_id: "com.apple.Terminal".to_string(),
+        app_name: "Terminal".to_string(),
+    };
+
+    assert_eq!(
+        serde_json::to_value(action).expect("action should serialize"),
+        json!({
+            "type": "launch_or_focus_app",
+            "bundleId": "com.apple.Terminal",
+            "appName": "Terminal"
+        })
+    );
+}
+
+#[test]
+fn send_shortcut_serializes_with_tagged_enum_and_value_names() {
+    let action = PadAction::SendShortcut {
+        key: ShortcutKey::F12,
+        modifiers: vec![ShortcutModifier::Cmd, ShortcutModifier::Shift],
+    };
+
+    assert_eq!(
+        serde_json::to_value(action).expect("action should serialize"),
+        json!({
+            "type": "send_shortcut",
+            "key": "F12",
+            "modifiers": ["Cmd", "Shift"]
+        })
+    );
+}
+
+#[test]
+fn invalid_action_payload_is_rejected_during_config_normalization() {
+    let profile = LayoutProfile {
+        id: "default".to_string(),
+        name: "Default".to_string(),
+        pads: vec![PadBinding {
+            pad_id: "r0c0".to_string(),
+            label: "".to_string(),
+            color: PadColorId::Off,
+            action: PadAction::SendShortcut {
+                key: ShortcutKey::A,
+                modifiers: vec![ShortcutModifier::Cmd, ShortcutModifier::Cmd],
+            },
+        }],
+    };
+
+    let error = Config::from_parts(
+        AppSettings {
+            active_profile_id: "default".to_string(),
+        },
+        vec![profile],
+    )
+    .expect_err("invalid shortcut payload should be rejected");
+
+    assert!(error.to_string().contains("shortcut"));
 }
