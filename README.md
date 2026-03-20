@@ -17,3 +17,10 @@ Ableton Push 3 を macOS 上で Stream Deck のように使うためのデスク
 - Rust
 - macOS native integration
 - MIDI-based Push 3 control
+
+## Bootstrap
+
+- `npm install`
+- `npm run build`
+- `npm run lint`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
