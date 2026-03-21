@@ -108,26 +108,25 @@ impl RuntimeState {
     }
 }
 
-fn runtime_state_store() -> &'static Mutex<RuntimeState> {
-    static STORE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(RuntimeState::new(
-        AppState::Starting,
-        ShortcutCapabilityState::Unavailable,
-    )))
+fn shortcut_capability_store() -> &'static Mutex<ShortcutCapabilityState> {
+    static STORE: OnceLock<Mutex<ShortcutCapabilityState>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(ShortcutCapabilityState::Unavailable))
 }
 
-pub fn current_runtime_state() -> RuntimeState {
-    runtime_state_store()
+pub fn recorded_shortcut_capability() -> ShortcutCapabilityState {
+    *shortcut_capability_store()
         .lock()
-        .expect("runtime state store lock poisoned")
-        .clone()
+        .expect("shortcut capability store lock poisoned")
 }
 
-pub fn record_shortcut_capability(shortcut: ShortcutCapabilityState) -> RuntimeState {
-    let mut state = runtime_state_store()
+pub fn runtime_state_snapshot(app_state: AppState) -> RuntimeState {
+    RuntimeState::new(app_state, recorded_shortcut_capability())
+}
+
+pub fn record_shortcut_capability(shortcut: ShortcutCapabilityState) -> ShortcutCapabilityState {
+    let mut capability = shortcut_capability_store()
         .lock()
-        .expect("runtime state store lock poisoned");
-    let next = state.with_shortcut_capability(shortcut);
-    *state = next.clone();
-    next
+        .expect("shortcut capability store lock poisoned");
+    *capability = shortcut;
+    *capability
 }

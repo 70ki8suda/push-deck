@@ -18,9 +18,11 @@ mod actions;
 
 use actions::{dispatch_pad_action, ActionExecutionError, SendShortcutError};
 use macos::{ActionBackend, MacosError};
-use push_deck::app_state::{current_runtime_state, ShortcutCapabilityState};
+use push_deck::app_state::{
+    record_shortcut_capability, recorded_shortcut_capability, ShortcutCapabilityState,
+};
 use schema::{PadAction, ShortcutKey, ShortcutModifier};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[test]
 fn dispatches_shortcut_when_permission_and_frontmost_target_are_present() {
@@ -126,6 +128,8 @@ fn rejects_invalid_shortcut_payload_before_backend_execution() {
 
 #[test]
 fn reports_shortcut_capability_as_available_when_accessibility_is_granted() {
+    let _guard = capability_test_guard();
+    record_shortcut_capability(ShortcutCapabilityState::Unavailable);
     let backend = FakeBackend::new().with_accessibility_permission(true);
 
     let capability =
@@ -133,14 +137,13 @@ fn reports_shortcut_capability_as_available_when_accessibility_is_granted() {
 
     assert_eq!(capability, ShortcutCapabilityState::Available);
     assert_eq!(backend.accessibility_queries(), vec![true]);
-    assert_eq!(
-        current_runtime_state().capabilities.shortcut,
-        ShortcutCapabilityState::Available
-    );
+    assert_eq!(recorded_shortcut_capability(), ShortcutCapabilityState::Available);
 }
 
 #[test]
 fn reports_shortcut_capability_as_unavailable_when_accessibility_is_missing() {
+    let _guard = capability_test_guard();
+    record_shortcut_capability(ShortcutCapabilityState::Unavailable);
     let backend = FakeBackend::new().with_accessibility_permission(false);
 
     let capability =
@@ -149,9 +152,16 @@ fn reports_shortcut_capability_as_unavailable_when_accessibility_is_missing() {
     assert_eq!(capability, ShortcutCapabilityState::Unavailable);
     assert_eq!(backend.accessibility_queries(), vec![true]);
     assert_eq!(
-        current_runtime_state().capabilities.shortcut,
+        recorded_shortcut_capability(),
         ShortcutCapabilityState::Unavailable
     );
+}
+
+fn capability_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("capability test lock poisoned")
 }
 
 #[derive(Clone, Default)]
