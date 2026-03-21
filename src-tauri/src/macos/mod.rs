@@ -1,10 +1,15 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+
+use crate::config::schema::{ShortcutKey, ShortcutModifier};
+
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MacosError {
     PlatformUnavailable,
+    UnsupportedAction,
     AppNotFound { bundle_id: String },
     Backend { message: String },
 }
@@ -15,6 +20,7 @@ impl Display for MacosError {
             Self::PlatformUnavailable => {
                 f.write_str("macOS integration is unavailable on this platform")
             }
+            Self::UnsupportedAction => f.write_str("action is not supported by this backend"),
             Self::AppNotFound { bundle_id } => write!(f, "app not found: {bundle_id}"),
             Self::Backend { message } => f.write_str(message),
         }
@@ -23,9 +29,15 @@ impl Display for MacosError {
 
 impl Error for MacosError {}
 
-pub trait LaunchOrFocusBackend {
-    fn resolve_bundle_id(&self, app_name: &str) -> Result<Option<String>, MacosError>;
+pub trait ActionBackend {
     fn launch_or_focus_bundle_id(&self, bundle_id: &str) -> Result<(), MacosError>;
+    fn send_shortcut(
+        &self,
+        _key: ShortcutKey,
+        _modifiers: &[ShortcutModifier],
+    ) -> Result<(), MacosError> {
+        Err(MacosError::UnsupportedAction)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -46,44 +58,17 @@ impl SystemMacosBackend {
     fn escape_applescript_string(value: &str) -> String {
         value.replace('\\', "\\\\").replace('\"', "\\\"")
     }
+
+    fn known_app_not_found(stderr: &str) -> bool {
+        stderr.contains("Can’t get application id")
+            || stderr.contains("Can't get application id")
+            || stderr.contains("Application can't be found")
+            || stderr.contains("Application can’t be found")
+    }
 }
 
 #[cfg(target_os = "macos")]
-impl LaunchOrFocusBackend for SystemMacosBackend {
-    fn resolve_bundle_id(&self, app_name: &str) -> Result<Option<String>, MacosError> {
-        let script = format!(
-            "id of application \"{}\"",
-            Self::escape_applescript_string(app_name)
-        );
-        let output = Self::run_osascript(&script)?;
-
-        if output.status.success() {
-            let bundle_id =
-                String::from_utf8(output.stdout).map_err(|error| MacosError::Backend {
-                    message: format!("invalid bundle id output: {error}"),
-                })?;
-            let bundle_id = bundle_id.trim().to_string();
-
-            if bundle_id.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(bundle_id))
-            }
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.contains("Can’t get application id")
-                || stderr.contains("Can't get application id")
-                || stderr.contains("application id")
-            {
-                Ok(None)
-            } else {
-                Err(MacosError::Backend {
-                    message: stderr.trim().to_string(),
-                })
-            }
-        }
-    }
-
+impl ActionBackend for SystemMacosBackend {
     fn launch_or_focus_bundle_id(&self, bundle_id: &str) -> Result<(), MacosError> {
         let script = format!(
             "tell application id \"{}\" to activate",
@@ -95,11 +80,7 @@ impl LaunchOrFocusBackend for SystemMacosBackend {
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.contains("Can’t get application id")
-                || stderr.contains("Can't get application id")
-                || stderr.contains("not found")
-                || stderr.contains("No application")
-            {
+            if Self::known_app_not_found(&stderr) {
                 Err(MacosError::AppNotFound {
                     bundle_id: bundle_id.to_string(),
                 })
@@ -110,14 +91,18 @@ impl LaunchOrFocusBackend for SystemMacosBackend {
             }
         }
     }
+
+    fn send_shortcut(
+        &self,
+        _key: ShortcutKey,
+        _modifiers: &[ShortcutModifier],
+    ) -> Result<(), MacosError> {
+        Err(MacosError::UnsupportedAction)
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
-impl LaunchOrFocusBackend for SystemMacosBackend {
-    fn resolve_bundle_id(&self, _app_name: &str) -> Result<Option<String>, MacosError> {
-        Err(MacosError::PlatformUnavailable)
-    }
-
+impl ActionBackend for SystemMacosBackend {
     fn launch_or_focus_bundle_id(&self, _bundle_id: &str) -> Result<(), MacosError> {
         Err(MacosError::PlatformUnavailable)
     }

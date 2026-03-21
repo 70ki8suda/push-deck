@@ -1,5 +1,5 @@
 use crate::config::schema::PadAction;
-use crate::macos::{LaunchOrFocusBackend, MacosError};
+use crate::macos::{ActionBackend, MacosError};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -26,7 +26,7 @@ impl Error for LaunchOrFocusError {}
 
 pub fn launch_or_focus_app<B>(backend: &B, action: &PadAction) -> Result<(), LaunchOrFocusError>
 where
-    B: LaunchOrFocusBackend,
+    B: ActionBackend,
 {
     let PadAction::LaunchOrFocusApp {
         bundle_id,
@@ -36,19 +36,14 @@ where
         return Ok(());
     };
 
-    let resolved_bundle_id = if bundle_id.trim().is_empty() {
-        backend
-            .resolve_bundle_id(app_name)
-            .map_err(LaunchOrFocusError::Macos)?
-            .ok_or_else(|| LaunchOrFocusError::BundleIdUnavailable {
-                app_name: app_name.clone(),
-            })?
-    } else {
-        bundle_id.clone()
-    };
+    if bundle_id.trim().is_empty() {
+        return Err(LaunchOrFocusError::BundleIdUnavailable {
+            app_name: app_name.clone(),
+        });
+    }
 
     backend
-        .launch_or_focus_bundle_id(&resolved_bundle_id)
+        .launch_or_focus_bundle_id(bundle_id)
         .map_err(|error| match error {
             MacosError::AppNotFound { bundle_id } => LaunchOrFocusError::AppNotFound { bundle_id },
             other => LaunchOrFocusError::Macos(other),
