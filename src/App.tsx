@@ -1,25 +1,242 @@
+import {
+  startTransition,
+  useEffect,
+  useEffectEvent,
+  useState,
+} from "react";
+import type { CSSProperties } from "react";
+import { EditorPage } from "./features/editor/EditorPage";
+import {
+  loadCurrentConfig,
+  restoreDefaultConfig,
+  subscribeRuntimeEvent,
+} from "./lib/api";
+import type {
+  Config,
+  ConfigRecoveryState,
+  CurrentConfigResponse,
+  RuntimeEvent,
+  RuntimeState,
+} from "./lib/types";
+
+const defaultRuntimeState: RuntimeState = {
+  app_state: "starting",
+  capabilities: {
+    shortcut: "unavailable",
+  },
+};
+
+const appStyles = {
+  page: {
+    background:
+      "radial-gradient(circle at top left, rgba(88, 140, 123, 0.24) 0%, transparent 26%), radial-gradient(circle at top right, rgba(212, 149, 72, 0.22) 0%, transparent 24%), linear-gradient(180deg, #0c0f0d 0%, #131815 44%, #181d19 100%)",
+    color: "#f4f0e8",
+    minHeight: "100vh",
+    padding: "2rem",
+  },
+  shell: {
+    margin: "0 auto",
+    maxWidth: "88rem",
+  },
+  header: {
+    display: "grid",
+    gap: "0.35rem",
+    marginBottom: "1.5rem",
+  },
+  eyebrow: {
+    color: "#9bb09d",
+    fontSize: "0.78rem",
+    letterSpacing: "0.16em",
+    margin: 0,
+    textTransform: "uppercase",
+  },
+  titleRow: {
+    alignItems: "baseline",
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "0.8rem",
+    justifyContent: "space-between",
+  },
+  title: {
+    fontFamily: "\"Avenir Next\", \"Segoe UI\", sans-serif",
+    fontSize: "clamp(2.2rem, 5vw, 4.8rem)",
+    lineHeight: 0.94,
+    margin: 0,
+  },
+  subtitle: {
+    color: "#b8c4b9",
+    margin: 0,
+    maxWidth: "44rem",
+  },
+  loadError: {
+    background: "rgba(155, 63, 45, 0.18)",
+    border: "1px solid rgba(204, 95, 71, 0.38)",
+    borderRadius: "1rem",
+    color: "#ffd5cb",
+    margin: "0 0 1.2rem",
+    padding: "0.95rem 1rem",
+  },
+} satisfies Record<string, CSSProperties>;
+
+function selectInitialPad(config: Config | null) {
+  const profile =
+    config?.profiles.find(
+      (candidate) => candidate.id === config.settings.activeProfileId,
+    ) ?? config?.profiles[0];
+
+  return profile?.pads[0]?.padId ?? null;
+}
+
+function deriveLoadedState(response: CurrentConfigResponse) {
+  if (response.status === "ready") {
+    return {
+      config: response.config,
+      recovery: null,
+      runtimeState: response.runtime_state,
+      selectedPadId: selectInitialPad(response.config),
+    };
+  }
+
+  return {
+    config: null,
+    recovery: response.recovery,
+    runtimeState: response.runtime_state,
+    selectedPadId: null,
+  };
+}
+
 export default function App() {
+  const [config, setConfig] = useState<Config | null>(null);
+  const [recovery, setRecovery] = useState<ConfigRecoveryState | null>(null);
+  const [runtimeState, setRuntimeState] =
+    useState<RuntimeState>(defaultRuntimeState);
+  const [selectedPadId, setSelectedPadId] = useState<string | null>(null);
+  const [deviceName, setDeviceName] = useState<string | null>(null);
+  const [isDeviceConnected, setIsDeviceConnected] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const applyLoadedState = useEffectEvent((response: CurrentConfigResponse) => {
+    const next = deriveLoadedState(response);
+
+    startTransition(() => {
+      setConfig(next.config);
+      setRecovery(next.recovery);
+      setRuntimeState(next.runtimeState);
+      setSelectedPadId(next.selectedPadId);
+      setLoadError(null);
+    });
+  });
+
+  const handleRuntimeEvent = useEffectEvent((event: RuntimeEvent) => {
+    switch (event.type) {
+      case "state_changed":
+        startTransition(() => {
+          setRuntimeState(event.state);
+        });
+        break;
+      case "device_connection_changed":
+        startTransition(() => {
+          setDeviceName(event.device_name);
+          setIsDeviceConnected(event.connected);
+        });
+        break;
+      default:
+        break;
+    }
+  });
+
+  useEffect(() => {
+    let isCancelled = false;
+    let cleanup: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const response = await loadCurrentConfig();
+        if (isCancelled) {
+          return;
+        }
+
+        applyLoadedState(response);
+        cleanup = await subscribeRuntimeEvent((event) => {
+          if (!isCancelled) {
+            handleRuntimeEvent(event);
+          }
+        });
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+
+        startTransition(() => {
+          setRuntimeState((current) => ({
+            ...current,
+            app_state: "save_failed",
+          }));
+          setLoadError(
+            error instanceof Error ? error.message : "Unable to load Push Deck state.",
+          );
+        });
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+      cleanup?.();
+    };
+  }, [applyLoadedState, handleRuntimeEvent]);
+
+  async function handleRestoreDefaultConfig() {
+    try {
+      const response = await restoreDefaultConfig();
+
+      startTransition(() => {
+        setConfig(response.config);
+        setRecovery(null);
+        setRuntimeState(response.runtime_state);
+        setSelectedPadId(selectInitialPad(response.config));
+        setLoadError(null);
+      });
+    } catch (error) {
+      startTransition(() => {
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "Unable to restore the default Push Deck layout.",
+        );
+      });
+    }
+  }
+
   return (
-    <main
-      style={{
-        alignItems: "center",
-        color: "#f5f7fb",
-        display: "grid",
-        fontFamily: "system-ui, sans-serif",
-        minHeight: "100vh",
-        placeItems: "center",
-        background: "linear-gradient(135deg, #111827 0%, #1f2937 100%)",
-      }}
-    >
-      <section style={{ textAlign: "center" }}>
-        <p style={{ letterSpacing: "0.2em", textTransform: "uppercase" }}>
-          Push Deck
-        </p>
-        <h1 style={{ fontSize: "3rem", margin: 0 }}>Workspace scaffold ready</h1>
-        <p style={{ color: "#cbd5e1" }}>
-          Tauri shell and Vite frontend are wired for the next task.
-        </p>
-      </section>
+    <main style={appStyles.page}>
+      <div style={appStyles.shell}>
+        <header style={appStyles.header}>
+          <p style={appStyles.eyebrow}>Push Deck</p>
+          <div style={appStyles.titleRow}>
+            <h1 style={appStyles.title}>Editor Shell</h1>
+            <p style={appStyles.subtitle}>
+              Shape the Push 3 grid from one runtime-aware workspace, with
+              recovery gating preserved when the config store reports a broken
+              layout file.
+            </p>
+          </div>
+        </header>
+
+        {loadError ? <p style={appStyles.loadError}>{loadError}</p> : null}
+
+        <EditorPage
+          config={config}
+          runtimeState={runtimeState}
+          recovery={recovery}
+          selectedPadId={selectedPadId}
+          deviceName={deviceName}
+          isDeviceConnected={isDeviceConnected}
+          onRestoreDefaultConfig={() => {
+            void handleRestoreDefaultConfig();
+          }}
+          onSelectPad={setSelectedPadId}
+        />
+      </div>
     </main>
   );
 }
