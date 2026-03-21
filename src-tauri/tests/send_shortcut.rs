@@ -10,12 +10,6 @@ mod config {
 #[path = "../src/app_state.rs"]
 mod app_state;
 
-#[path = "../src/display/mod.rs"]
-mod display;
-
-#[path = "../src/events.rs"]
-mod events;
-
 #[path = "../src/macos/mod.rs"]
 mod macos;
 
@@ -26,14 +20,10 @@ mod send_shortcut;
 mod actions;
 
 use actions::{dispatch_pad_action, ActionExecutionError, SendShortcutError};
-use app_state::{AppState, RuntimeState, ShortcutCapabilityState};
-use events::RUNTIME_EVENT_NAME;
+use app_state::ShortcutCapabilityState;
 use macos::{ActionBackend, MacosError};
 use schema::{PadAction, ShortcutKey, ShortcutModifier};
-use serde_json::json;
-use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-use tauri::Listener;
 
 #[test]
 fn dispatches_shortcut_when_permission_and_frontmost_target_are_present() {
@@ -138,40 +128,25 @@ fn rejects_invalid_shortcut_payload_before_backend_execution() {
 }
 
 #[test]
-fn emits_runtime_state_with_updated_shortcut_capability() {
-    let app = tauri::test::mock_app();
-    let (tx, rx) = channel();
-    let _listener_id = app.listen_any(RUNTIME_EVENT_NAME, move |event| {
-        tx.send(event.payload().to_string())
-            .expect("listener should receive payload");
-    });
+fn reports_shortcut_capability_as_available_when_accessibility_is_granted() {
+    let backend = FakeBackend::new().with_accessibility_permission(true);
 
-    let runtime_state = RuntimeState::new(AppState::Ready, ShortcutCapabilityState::Unavailable);
-    send_shortcut::emit_shortcut_capability_state(
-        &app,
-        &runtime_state,
-        ShortcutCapabilityState::Available,
-    )
-    .expect("state emission should succeed");
+    let capability =
+        send_shortcut::shortcut_capability_state(&backend).expect("capability should resolve");
 
-    let payload: serde_json::Value = rx
-        .recv()
-        .expect("runtime event should be emitted")
-        .parse()
-        .expect("payload should be valid json");
+    assert_eq!(capability, ShortcutCapabilityState::Available);
+    assert_eq!(backend.accessibility_queries(), vec![true]);
+}
 
-    assert_eq!(
-        payload,
-        json!({
-            "type": "state_changed",
-            "state": {
-                "app_state": "ready",
-                "capabilities": {
-                    "shortcut": "available"
-                }
-            }
-        })
-    );
+#[test]
+fn reports_shortcut_capability_as_unavailable_when_accessibility_is_missing() {
+    let backend = FakeBackend::new().with_accessibility_permission(false);
+
+    let capability =
+        send_shortcut::shortcut_capability_state(&backend).expect("capability should resolve");
+
+    assert_eq!(capability, ShortcutCapabilityState::Unavailable);
+    assert_eq!(backend.accessibility_queries(), vec![true]);
 }
 
 #[derive(Clone, Default)]

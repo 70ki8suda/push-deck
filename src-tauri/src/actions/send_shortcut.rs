@@ -1,6 +1,5 @@
-use crate::app_state::{RuntimeState, ShortcutCapabilityState};
+use crate::app_state::ShortcutCapabilityState;
 use crate::config::schema::{PadAction, ShortcutModifier};
-use crate::events::{emit_runtime_event, RuntimeEvent};
 use crate::macos::{ActionBackend, MacosError};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -40,10 +39,8 @@ where
 
     let modifiers = normalize_shortcut_modifiers(modifiers)?;
 
-    let accessibility_available = backend
-        .shortcut_accessibility_available()
-        .map_err(SendShortcutError::Macos)?;
-    if !accessibility_available {
+    let capability = shortcut_capability_state(backend).map_err(SendShortcutError::Macos)?;
+    if capability == ShortcutCapabilityState::Unavailable {
         return Err(SendShortcutError::AccessibilityPermissionUnavailable);
     }
 
@@ -60,21 +57,23 @@ where
         .map_err(SendShortcutError::Macos)
 }
 
-pub fn emit_shortcut_capability_state<R, E>(
-    emitter: &E,
-    runtime_state: &RuntimeState,
-    shortcut: ShortcutCapabilityState,
-) -> tauri::Result<()>
+pub fn shortcut_capability_state<B>(backend: &B) -> Result<ShortcutCapabilityState, MacosError>
 where
-    R: tauri::Runtime,
-    E: tauri::Emitter<R>,
+    B: ActionBackend,
 {
-    emit_runtime_event(
-        emitter,
-        RuntimeEvent::StateChanged {
-            state: runtime_state.with_shortcut_capability(shortcut),
-        },
-    )
+    let capability = if backend.shortcut_accessibility_available()? {
+        ShortcutCapabilityState::Available
+    } else {
+        ShortcutCapabilityState::Unavailable
+    };
+    eprintln!(
+        "shortcut capability: {}",
+        match capability {
+            ShortcutCapabilityState::Available => "available",
+            ShortcutCapabilityState::Unavailable => "unavailable",
+        }
+    );
+    Ok(capability)
 }
 
 fn normalize_shortcut_modifiers(

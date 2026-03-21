@@ -7,6 +7,9 @@ mod config {
     }
 }
 
+#[path = "../src/app_state.rs"]
+mod app_state;
+
 #[path = "../src/macos/mod.rs"]
 mod macos;
 
