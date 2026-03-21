@@ -81,7 +81,7 @@ export type ShortcutKey =
   | "Delete";
 
 export interface AppSettings {
-  active_profile_id: string;
+  activeProfileId: string;
 }
 
 export interface PadActionUnassigned {
@@ -106,7 +106,7 @@ export type PadAction =
   | PadActionSendShortcut;
 
 export interface PadBinding {
-  pad_id: string;
+  padId: string;
   label: string;
   color: PadColorId;
   action: PadAction;

@@ -34,7 +34,7 @@ describe("frontend api helpers", () => {
       config: {
         schemaVersion: 1,
         settings: {
-          active_profile_id: "default",
+          activeProfileId: "default",
         },
         profiles: [],
       },
@@ -62,10 +62,10 @@ describe("frontend api helpers", () => {
 
     await expect(loadCurrentConfig()).resolves.toBe(readyResponse);
     await expect(
-      updatePadBinding({
-        pad_id: "r0c0",
-        binding: {
+        updatePadBinding({
           pad_id: "r0c0",
+          binding: {
+          padId: "r0c0",
           label: "Launch",
           color: "green",
           action: {
@@ -84,7 +84,7 @@ describe("frontend api helpers", () => {
       request: {
         pad_id: "r0c0",
         binding: {
-          pad_id: "r0c0",
+          padId: "r0c0",
           label: "Launch",
           color: "green",
           action: {
