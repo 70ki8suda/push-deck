@@ -15,6 +15,7 @@ import type {
   Config,
   ConfigRecoveryState,
   CurrentConfigResponse,
+  RestoreDefaultConfigResponse,
   RuntimeEvent,
   RuntimeState,
 } from "./lib/types";
@@ -87,7 +88,7 @@ function selectInitialPad(config: Config | null) {
   return profile?.pads[0]?.padId ?? null;
 }
 
-function deriveLoadedState(response: CurrentConfigResponse) {
+export function deriveLoadedState(response: CurrentConfigResponse) {
   if (response.status === "ready") {
     return {
       config: response.config,
@@ -102,6 +103,61 @@ function deriveLoadedState(response: CurrentConfigResponse) {
     recovery: response.recovery,
     runtimeState: response.runtime_state,
     selectedPadId: null,
+  };
+}
+
+export function deriveRestoredState(response: RestoreDefaultConfigResponse) {
+  return {
+    config: response.config,
+    recovery: null,
+    runtimeState: response.runtime_state,
+    selectedPadId: selectInitialPad(response.config),
+  };
+}
+
+type RuntimeBootstrapDeps = {
+  loadCurrentConfig: typeof loadCurrentConfig;
+  subscribeRuntimeEvent: typeof subscribeRuntimeEvent;
+  applyLoadedState: (response: CurrentConfigResponse) => void;
+  handleRuntimeEvent: (event: RuntimeEvent) => void;
+  handleLoadError: (error: unknown) => void;
+};
+
+export function createRuntimeSubscription(deps: RuntimeBootstrapDeps) {
+  let isCancelled = false;
+  let cleanup: (() => void) | undefined;
+
+  void (async () => {
+    try {
+      const response = await deps.loadCurrentConfig();
+      if (isCancelled) {
+        return;
+      }
+
+      deps.applyLoadedState(response);
+
+      const nextCleanup = await deps.subscribeRuntimeEvent((event) => {
+        if (!isCancelled) {
+          deps.handleRuntimeEvent(event);
+        }
+      });
+
+      if (isCancelled) {
+        nextCleanup();
+        return;
+      }
+
+      cleanup = nextCleanup;
+    } catch (error) {
+      if (!isCancelled) {
+        deps.handleLoadError(error);
+      }
+    }
+  })();
+
+  return () => {
+    isCancelled = true;
+    cleanup?.();
   };
 }
 
@@ -146,27 +202,12 @@ export default function App() {
   });
 
   useEffect(() => {
-    let isCancelled = false;
-    let cleanup: (() => void) | undefined;
-
-    void (async () => {
-      try {
-        const response = await loadCurrentConfig();
-        if (isCancelled) {
-          return;
-        }
-
-        applyLoadedState(response);
-        cleanup = await subscribeRuntimeEvent((event) => {
-          if (!isCancelled) {
-            handleRuntimeEvent(event);
-          }
-        });
-      } catch (error) {
-        if (isCancelled) {
-          return;
-        }
-
+    return createRuntimeSubscription({
+      loadCurrentConfig,
+      subscribeRuntimeEvent,
+      applyLoadedState,
+      handleRuntimeEvent,
+      handleLoadError(error) {
         startTransition(() => {
           setRuntimeState((current) => ({
             ...current,
@@ -176,24 +217,20 @@ export default function App() {
             error instanceof Error ? error.message : "Unable to load Push Deck state.",
           );
         });
-      }
-    })();
-
-    return () => {
-      isCancelled = true;
-      cleanup?.();
-    };
+      },
+    });
   }, [applyLoadedState, handleRuntimeEvent]);
 
   async function handleRestoreDefaultConfig() {
     try {
       const response = await restoreDefaultConfig();
+      const next = deriveRestoredState(response);
 
       startTransition(() => {
-        setConfig(response.config);
-        setRecovery(null);
-        setRuntimeState(response.runtime_state);
-        setSelectedPadId(selectInitialPad(response.config));
+        setConfig(next.config);
+        setRecovery(next.recovery);
+        setRuntimeState(next.runtimeState);
+        setSelectedPadId(next.selectedPadId);
         setLoadError(null);
       });
     } catch (error) {
