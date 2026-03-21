@@ -263,6 +263,13 @@ impl ShortcutSpec {
 }
 
 impl PadAction {
+    pub fn launch_or_focus_app(bundle_id: impl Into<String>, app_name: impl Into<String>) -> Self {
+        Self::LaunchOrFocusApp {
+            bundle_id: bundle_id.into(),
+            app_name: app_name.into(),
+        }
+    }
+
     fn validate_and_normalize(&mut self) -> Result<(), ConfigError> {
         match self {
             Self::Unassigned => Ok(()),
