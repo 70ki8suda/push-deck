@@ -7,9 +7,6 @@ mod config {
     }
 }
 
-#[path = "../src/app_state.rs"]
-mod app_state;
-
 #[path = "../src/macos/mod.rs"]
 mod macos;
 
@@ -20,8 +17,8 @@ mod send_shortcut;
 mod actions;
 
 use actions::{dispatch_pad_action, ActionExecutionError, SendShortcutError};
-use app_state::ShortcutCapabilityState;
 use macos::{ActionBackend, MacosError};
+use push_deck::app_state::{current_runtime_state, ShortcutCapabilityState};
 use schema::{PadAction, ShortcutKey, ShortcutModifier};
 use std::sync::{Arc, Mutex};
 
@@ -136,6 +133,10 @@ fn reports_shortcut_capability_as_available_when_accessibility_is_granted() {
 
     assert_eq!(capability, ShortcutCapabilityState::Available);
     assert_eq!(backend.accessibility_queries(), vec![true]);
+    assert_eq!(
+        current_runtime_state().capabilities.shortcut,
+        ShortcutCapabilityState::Available
+    );
 }
 
 #[test]
@@ -147,6 +148,10 @@ fn reports_shortcut_capability_as_unavailable_when_accessibility_is_missing() {
 
     assert_eq!(capability, ShortcutCapabilityState::Unavailable);
     assert_eq!(backend.accessibility_queries(), vec![true]);
+    assert_eq!(
+        current_runtime_state().capabilities.shortcut,
+        ShortcutCapabilityState::Unavailable
+    );
 }
 
 #[derive(Clone, Default)]

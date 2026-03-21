@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -105,4 +106,28 @@ impl RuntimeState {
             capabilities: RuntimeCapabilities { shortcut },
         }
     }
+}
+
+fn runtime_state_store() -> &'static Mutex<RuntimeState> {
+    static STORE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(RuntimeState::new(
+        AppState::Starting,
+        ShortcutCapabilityState::Unavailable,
+    )))
+}
+
+pub fn current_runtime_state() -> RuntimeState {
+    runtime_state_store()
+        .lock()
+        .expect("runtime state store lock poisoned")
+        .clone()
+}
+
+pub fn record_shortcut_capability(shortcut: ShortcutCapabilityState) -> RuntimeState {
+    let mut state = runtime_state_store()
+        .lock()
+        .expect("runtime state store lock poisoned");
+    let next = state.with_shortcut_capability(shortcut);
+    *state = next.clone();
+    next
 }
