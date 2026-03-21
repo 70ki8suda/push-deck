@@ -1,9 +1,8 @@
-use crate::config::schema::PadBinding;
-
-use super::colors::map_pad_color_id;
+use super::colors::Push3Color;
 
 pub const PAD_ROWS: u8 = 8;
 pub const PAD_COLUMNS: u8 = 8;
+pub const PAD_COUNT: usize = (PAD_ROWS as usize) * (PAD_COLUMNS as usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Push3PadCoordinate {
@@ -11,14 +10,17 @@ pub struct Push3PadCoordinate {
     pub column: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Push3TransportPadIndex(pub u8);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Push3PadInputMessage {
+pub enum Push3TransportPadInputMessage {
     PadPressed {
-        coordinate: Push3PadCoordinate,
+        transport_index: Push3TransportPadIndex,
         velocity: u8,
     },
     PadReleased {
-        coordinate: Push3PadCoordinate,
+        transport_index: Push3TransportPadIndex,
     },
 }
 
@@ -28,9 +30,15 @@ pub struct DecodedPadInput {
     pub velocity: u8,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Push3PadLed {
+    pub pad_id: String,
+    pub color: Push3Color,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Push3LedState {
-    pub coordinate: Push3PadCoordinate,
+pub struct Push3TransportLedCommand {
+    pub transport_index: Push3TransportPadIndex,
     pub color_value: u8,
 }
 
@@ -54,30 +62,61 @@ pub fn pad_id_for_coordinate(coordinate: Push3PadCoordinate) -> Option<String> {
     }
 }
 
-pub fn decode_pad_input(message: Push3PadInputMessage) -> Option<DecodedPadInput> {
-    match message {
-        Push3PadInputMessage::PadPressed {
-            coordinate,
-            velocity,
-        } => pad_id_for_coordinate(coordinate).map(|pad_id| DecodedPadInput { pad_id, velocity }),
-        Push3PadInputMessage::PadReleased { .. } => None,
+pub fn transport_pad_index_for_coordinate(
+    coordinate: Push3PadCoordinate,
+) -> Option<Push3TransportPadIndex> {
+    if coordinate.row < PAD_ROWS && coordinate.column < PAD_COLUMNS {
+        Some(Push3TransportPadIndex(
+            coordinate.row * PAD_COLUMNS + coordinate.column,
+        ))
+    } else {
+        None
     }
 }
 
-pub fn render_pad_grid(bindings: &[PadBinding]) -> Vec<Push3LedState> {
-    let mut frame = Vec::with_capacity((PAD_ROWS * PAD_COLUMNS) as usize);
+pub fn coordinate_for_transport_pad_index(
+    transport_index: Push3TransportPadIndex,
+) -> Option<Push3PadCoordinate> {
+    if transport_index.0 < PAD_COUNT as u8 {
+        Some(Push3PadCoordinate {
+            row: transport_index.0 / PAD_COLUMNS,
+            column: transport_index.0 % PAD_COLUMNS,
+        })
+    } else {
+        None
+    }
+}
+
+pub fn decode_transport_pad_input(
+    message: Push3TransportPadInputMessage,
+) -> Option<DecodedPadInput> {
+    match message {
+        Push3TransportPadInputMessage::PadPressed {
+            transport_index,
+            velocity,
+        } => coordinate_for_transport_pad_index(transport_index)
+            .and_then(|coordinate| pad_id_for_coordinate(coordinate))
+            .map(|pad_id| DecodedPadInput { pad_id, velocity }),
+        Push3TransportPadInputMessage::PadReleased { .. } => None,
+    }
+}
+
+pub fn render_pad_leds(leds: &[Push3PadLed]) -> Vec<Push3TransportLedCommand> {
+    let mut frame = Vec::with_capacity(PAD_COUNT);
 
     for row in 0..PAD_ROWS {
         for column in 0..PAD_COLUMNS {
             let coordinate = Push3PadCoordinate { row, column };
-            let color_value = bindings
+            let transport_index = transport_pad_index_for_coordinate(coordinate)
+                .expect("all logical pad coordinates map to a transport index");
+            let color_value = leds
                 .iter()
-                .find(|binding| binding.pad_id == format!("r{}c{}", row, column))
-                .map(|binding| map_pad_color_id(binding.color).device_value())
+                .find(|led| led.pad_id == format!("r{}c{}", row, column))
+                .map(|led| led.color.device_value())
                 .unwrap_or(0);
 
-            frame.push(Push3LedState {
-                coordinate,
+            frame.push(Push3TransportLedCommand {
+                transport_index,
                 color_value,
             });
         }
