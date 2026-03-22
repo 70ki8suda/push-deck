@@ -70,4 +70,4 @@ Useful narrower commands:
 
 ## Spec
 
-The implementation spec lives at [docs/superpowers/specs/2026-03-18-push-deck-design.md](/Users/yasudanaoki/Downloads/push-deck/.worktrees/task-19-readme-release/docs/superpowers/specs/2026-03-18-push-deck-design.md).
+The implementation spec lives at [docs/superpowers/specs/2026-03-18-push-deck-design.md](docs/superpowers/specs/2026-03-18-push-deck-design.md).
