@@ -1,11 +1,16 @@
+import { startTransition, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import { triggerTestAction, updatePadBinding } from "../../lib/api";
 import type {
   Config,
   ConfigRecoveryState,
+  DetailPadDraft,
   PadBinding,
   RuntimeState,
+  TestActionResponse,
+  UpdatePadBindingResponse,
 } from "../../lib/types";
-import { DetailPanel } from "./DetailPanel";
+import { DetailPanel, buildPadBindingFromDraft, clearPadBinding } from "./DetailPanel";
 import { GridView } from "./GridView";
 import { RecoveryPanel } from "./RecoveryPanel";
 import { StatusBar } from "../status/StatusBar";
@@ -33,7 +38,7 @@ export interface EditorPageProps {
   onSelectPad: (padId: string) => void;
 }
 
-function getActiveProfile(config: Config | null) {
+export function getActiveProfile(config: Config | null) {
   if (config === null) {
     return null;
   }
@@ -45,7 +50,7 @@ function getActiveProfile(config: Config | null) {
   );
 }
 
-function getSelectedPad(
+export function getSelectedPad(
   profile: { pads: PadBinding[] } | null,
   selectedPadId: string | null,
 ) {
@@ -61,6 +66,35 @@ function getSelectedPad(
   return profile.pads.find((pad) => pad.padId === selectedPadId) ?? fallback;
 }
 
+export async function persistPadBindingEdit({
+  binding,
+  updatePadBinding: updatePadBindingCommand = updatePadBinding,
+}: {
+  binding: PadBinding;
+  updatePadBinding?: (
+    request: { pad_id: string; binding: PadBinding },
+  ) => Promise<UpdatePadBindingResponse>;
+}) {
+  const response = await updatePadBindingCommand({
+    pad_id: binding.padId,
+    binding,
+  });
+
+  return {
+    config: response.config,
+    runtimeState: response.runtime_state,
+    selectedPadId: binding.padId,
+  };
+}
+
+async function runTestAction(
+  padId: string,
+  triggerTestActionCommand = triggerTestAction,
+) {
+  const response: TestActionResponse = await triggerTestActionCommand(padId);
+  return response.runtime_state;
+}
+
 export function EditorPage({
   config,
   runtimeState,
@@ -71,15 +105,86 @@ export function EditorPage({
   onRestoreDefaultConfig,
   onSelectPad,
 }: EditorPageProps) {
-  const profile = getActiveProfile(config);
+  const [localConfig, setLocalConfig] = useState(config);
+  const [localRuntimeState, setLocalRuntimeState] = useState(runtimeState);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalConfig(config);
+  }, [config]);
+
+  useEffect(() => {
+    setLocalRuntimeState(runtimeState);
+  }, [runtimeState]);
+
+  const profile = getActiveProfile(localConfig);
   const selectedPad = getSelectedPad(profile, selectedPadId);
   const effectiveSelectedPadId = selectedPad?.padId ?? null;
-  const isRecoveryMode = runtimeState.app_state === "config_recovery_required";
+  const isRecoveryMode = localRuntimeState.app_state === "config_recovery_required";
+
+  async function applySavedBinding(binding: PadBinding) {
+    const next = await persistPadBindingEdit({ binding });
+
+    startTransition(() => {
+      setLocalConfig(next.config);
+      setLocalRuntimeState(next.runtimeState);
+      setFeedbackMessage(`Saved ${binding.padId}.`);
+      onSelectPad(next.selectedPadId);
+    });
+  }
+
+  async function handleSavePad(draft: DetailPadDraft) {
+    const result = buildPadBindingFromDraft(draft);
+    if (!result.ok) {
+      startTransition(() => {
+        setFeedbackMessage(result.error);
+      });
+      return;
+    }
+
+    try {
+      await applySavedBinding(result.binding);
+    } catch (error) {
+      startTransition(() => {
+        setFeedbackMessage(
+          error instanceof Error ? error.message : "Unable to save this pad binding.",
+        );
+      });
+    }
+  }
+
+  async function handleClearPad(pad: PadBinding) {
+    try {
+      await applySavedBinding(clearPadBinding(pad));
+    } catch (error) {
+      startTransition(() => {
+        setFeedbackMessage(
+          error instanceof Error ? error.message : "Unable to clear this pad binding.",
+        );
+      });
+    }
+  }
+
+  async function handleTestAction(padId: string) {
+    try {
+      const nextRuntimeState = await runTestAction(padId);
+      startTransition(() => {
+        setLocalRuntimeState(nextRuntimeState);
+        setFeedbackMessage(`Tested ${padId}.`);
+      });
+    } catch (error) {
+      startTransition(() => {
+        setFeedbackMessage(
+          error instanceof Error ? error.message : "Unable to test this pad binding.",
+        );
+      });
+    }
+  }
 
   return (
     <section style={shellStyles.frame}>
       <StatusBar
-        runtimeState={runtimeState}
+        runtimeState={localRuntimeState}
         deviceName={deviceName}
         isDeviceConnected={isDeviceConnected}
       />
@@ -93,8 +198,12 @@ export function EditorPage({
             onSelectPad={onSelectPad}
           />
           <DetailPanel
+            feedbackMessage={feedbackMessage}
+            onClearPad={handleClearPad}
+            onSavePad={handleSavePad}
+            onTestAction={handleTestAction}
             pad={selectedPad}
-            shortcutCapability={runtimeState.capabilities.shortcut}
+            shortcutCapability={localRuntimeState.capabilities.shortcut}
           />
         </div>
       )}

@@ -1,0 +1,68 @@
+import type { CSSProperties } from "react";
+import type { AppPickerOption } from "../../lib/types";
+
+const pickerStyles = {
+  select: {
+    background: "rgba(245, 240, 232, 0.05)",
+    border: "1px solid rgba(175, 193, 178, 0.14)",
+    borderRadius: "0.95rem",
+    color: "#f4f0e8",
+    padding: "0.8rem 0.95rem",
+    width: "100%",
+  },
+} satisfies Record<string, CSSProperties>;
+
+export const COMMON_APP_OPTIONS: readonly AppPickerOption[] = [
+  {
+    bundleId: "com.apple.finder",
+    appName: "Finder",
+  },
+  {
+    bundleId: "com.apple.Safari",
+    appName: "Safari",
+  },
+  {
+    bundleId: "com.apple.Terminal",
+    appName: "Terminal",
+  },
+  {
+    bundleId: "com.apple.TextEdit",
+    appName: "TextEdit",
+  },
+];
+
+export interface AppPickerProps {
+  options?: readonly AppPickerOption[];
+  selectedApp: AppPickerOption | null;
+  disabled?: boolean;
+  onSelectApp: (app: AppPickerOption | null) => void;
+}
+
+export function AppPicker({
+  options = COMMON_APP_OPTIONS,
+  selectedApp,
+  disabled = false,
+  onSelectApp,
+}: AppPickerProps) {
+  return (
+    <select
+      aria-label="App picker"
+      disabled={disabled}
+      value={selectedApp?.bundleId ?? ""}
+      style={pickerStyles.select}
+      onChange={(event) => {
+        const nextApp =
+          options.find((option) => option.bundleId === event.currentTarget.value) ??
+          null;
+        onSelectApp(nextApp);
+      }}
+    >
+      <option value="">Choose an app</option>
+      {options.map((option) => (
+        <option key={option.bundleId} value={option.bundleId}>
+          {option.appName}
+        </option>
+      ))}
+    </select>
+  );
+}

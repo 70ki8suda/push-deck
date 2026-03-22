@@ -19,66 +19,89 @@ export type PadColorId =
   | "purple"
   | "pink";
 
-export type ShortcutModifier = "Cmd" | "Shift" | "Opt" | "Ctrl";
+export const PAD_COLOR_OPTIONS = [
+  "off",
+  "white",
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "cyan",
+  "blue",
+  "purple",
+  "pink",
+] as const satisfies readonly PadColorId[];
 
-export type ShortcutKey =
-  | "A"
-  | "B"
-  | "C"
-  | "D"
-  | "E"
-  | "F"
-  | "G"
-  | "H"
-  | "I"
-  | "J"
-  | "K"
-  | "L"
-  | "M"
-  | "N"
-  | "O"
-  | "P"
-  | "Q"
-  | "R"
-  | "S"
-  | "T"
-  | "U"
-  | "V"
-  | "W"
-  | "X"
-  | "Y"
-  | "Z"
-  | "0"
-  | "1"
-  | "2"
-  | "3"
-  | "4"
-  | "5"
-  | "6"
-  | "7"
-  | "8"
-  | "9"
-  | "F1"
-  | "F2"
-  | "F3"
-  | "F4"
-  | "F5"
-  | "F6"
-  | "F7"
-  | "F8"
-  | "F9"
-  | "F10"
-  | "F11"
-  | "F12"
-  | "ArrowUp"
-  | "ArrowDown"
-  | "ArrowLeft"
-  | "ArrowRight"
-  | "Space"
-  | "Tab"
-  | "Enter"
-  | "Escape"
-  | "Delete";
+export const SHORTCUT_MODIFIER_ORDER = [
+  "Cmd",
+  "Shift",
+  "Opt",
+  "Ctrl",
+] as const;
+
+export type ShortcutModifier = (typeof SHORTCUT_MODIFIER_ORDER)[number];
+
+export const SHORTCUT_KEY_OPTIONS = [
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "F",
+  "G",
+  "H",
+  "I",
+  "J",
+  "K",
+  "L",
+  "M",
+  "N",
+  "O",
+  "P",
+  "Q",
+  "R",
+  "S",
+  "T",
+  "U",
+  "V",
+  "W",
+  "X",
+  "Y",
+  "Z",
+  "0",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+  "F5",
+  "F6",
+  "F7",
+  "F8",
+  "F9",
+  "F10",
+  "F11",
+  "F12",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Space",
+  "Tab",
+  "Enter",
+  "Escape",
+  "Delete",
+] as const;
+
+export type ShortcutKey = (typeof SHORTCUT_KEY_OPTIONS)[number];
 
 export interface AppSettings {
   activeProfileId: string;
@@ -105,6 +128,11 @@ export type PadAction =
   | PadActionLaunchOrFocusApp
   | PadActionSendShortcut;
 
+export interface AppPickerOption {
+  bundleId: string;
+  appName: string;
+}
+
 export interface PadBinding {
   padId: string;
   label: string;
@@ -116,6 +144,16 @@ export interface LayoutProfile {
   id: string;
   name: string;
   pads: PadBinding[];
+}
+
+export interface DetailPadDraft {
+  padId: string;
+  label: string;
+  color: PadColorId;
+  actionType: PadAction["type"];
+  selectedApp: AppPickerOption | null;
+  shortcutKeyInput: string;
+  shortcutModifiers: ShortcutModifier[];
 }
 
 export interface Config {

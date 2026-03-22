@@ -1,5 +1,20 @@
 import type { CSSProperties } from "react";
-import type { PadBinding, ShortcutCapabilityState } from "../../lib/types";
+import { useEffect, useState } from "react";
+import { AppPicker, COMMON_APP_OPTIONS } from "./AppPicker";
+import { ShortcutEditor } from "./ShortcutEditor";
+import type {
+  AppPickerOption,
+  DetailPadDraft,
+  PadBinding,
+  ShortcutCapabilityState,
+  ShortcutKey,
+  ShortcutModifier,
+} from "../../lib/types";
+import {
+  PAD_COLOR_OPTIONS,
+  SHORTCUT_KEY_OPTIONS,
+  SHORTCUT_MODIFIER_ORDER,
+} from "../../lib/types";
 
 const detailStyles = {
   panel: {
@@ -38,13 +53,13 @@ const detailStyles = {
     margin: 0,
     textTransform: "uppercase",
   },
-  fieldValue: {
+  input: {
     background: "rgba(245, 240, 232, 0.05)",
     border: "1px solid rgba(175, 193, 178, 0.14)",
-    borderRadius: "1rem",
+    borderRadius: "0.95rem",
     color: "#f4f0e8",
-    margin: 0,
-    padding: "0.9rem 1rem",
+    padding: "0.8rem 0.95rem",
+    width: "100%",
   },
   capabilityNote: {
     background: "rgba(210, 123, 62, 0.12)",
@@ -54,42 +69,220 @@ const detailStyles = {
     margin: 0,
     padding: "0.85rem 1rem",
   },
+  error: {
+    background: "rgba(155, 63, 45, 0.18)",
+    border: "1px solid rgba(204, 95, 71, 0.38)",
+    borderRadius: "1rem",
+    color: "#ffd5cb",
+    margin: 0,
+    padding: "0.85rem 1rem",
+  },
   actions: {
     display: "grid",
     gap: "0.75rem",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
   },
 } satisfies Record<string, CSSProperties>;
 
-function describeAction(pad: PadBinding | null) {
+type BuildResult =
+  | { ok: true; binding: PadBinding }
+  | { ok: false; error: string };
+
+function normalizeShortcutModifiers(
+  modifiers: ShortcutModifier[],
+): ShortcutModifier[] {
+  return [...new Set(modifiers)].sort(
+    (left, right) =>
+      SHORTCUT_MODIFIER_ORDER.indexOf(left) -
+      SHORTCUT_MODIFIER_ORDER.indexOf(right),
+  );
+}
+
+export function clearPadBinding(pad: PadBinding): PadBinding {
+  return {
+    padId: pad.padId,
+    label: "",
+    color: "off",
+    action: {
+      type: "unassigned",
+    },
+  };
+}
+
+export function createDetailDraft(pad: PadBinding | null): DetailPadDraft {
   if (pad === null) {
-    return "Select a pad to inspect its binding.";
+    return {
+      padId: "",
+      label: "",
+      color: "off",
+      actionType: "unassigned",
+      selectedApp: null,
+      shortcutKeyInput: "",
+      shortcutModifiers: [],
+    };
   }
 
   switch (pad.action.type) {
     case "launch_or_focus_app":
-      return `Launch or focus ${pad.action.appName}`;
+      return {
+        padId: pad.padId,
+        label: pad.label,
+        color: pad.color,
+        actionType: "launch_or_focus_app",
+        selectedApp: {
+          bundleId: pad.action.bundleId,
+          appName: pad.action.appName,
+        },
+        shortcutKeyInput: "",
+        shortcutModifiers: [],
+      };
     case "send_shortcut":
-      return `${pad.action.modifiers.join("+")}+${pad.action.key}`;
+      return {
+        padId: pad.padId,
+        label: pad.label,
+        color: pad.color,
+        actionType: "send_shortcut",
+        selectedApp: null,
+        shortcutKeyInput: pad.action.key,
+        shortcutModifiers: pad.action.modifiers,
+      };
     default:
-      return "No action assigned";
+      return {
+        padId: pad.padId,
+        label: pad.label,
+        color: pad.color,
+        actionType: "unassigned",
+        selectedApp: null,
+        shortcutKeyInput: "",
+        shortcutModifiers: [],
+      };
   }
+}
+
+export function buildPadBindingFromDraft(draft: DetailPadDraft): BuildResult {
+  if (draft.actionType === "launch_or_focus_app") {
+    if (draft.selectedApp === null) {
+      return {
+        ok: false,
+        error: "Choose an app before saving this pad.",
+      };
+    }
+
+    return {
+      ok: true,
+      binding: {
+        padId: draft.padId,
+        label: draft.label || draft.selectedApp.appName,
+        color: draft.color,
+        action: {
+          type: "launch_or_focus_app",
+          bundleId: draft.selectedApp.bundleId,
+          appName: draft.selectedApp.appName,
+        },
+      },
+    };
+  }
+
+  if (draft.actionType === "send_shortcut") {
+    const normalizedKey = draft.shortcutKeyInput.trim().toUpperCase();
+    const isSupportedKey = (SHORTCUT_KEY_OPTIONS as readonly string[]).includes(
+      normalizedKey,
+    );
+
+    if (!isSupportedKey) {
+      return {
+        ok: false,
+        error: "Shortcut key must match the supported key list.",
+      };
+    }
+
+    const modifiers = normalizeShortcutModifiers(draft.shortcutModifiers);
+    const shortcutLabel = [modifiers.join("+"), normalizedKey]
+      .filter(Boolean)
+      .join("+");
+
+    return {
+      ok: true,
+      binding: {
+        padId: draft.padId,
+        label: draft.label || shortcutLabel,
+        color: draft.color,
+        action: {
+          type: "send_shortcut",
+          key: normalizedKey as ShortcutKey,
+          modifiers,
+        },
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    binding: {
+      padId: draft.padId,
+      label: draft.label,
+      color: draft.color,
+      action: {
+        type: "unassigned",
+      },
+    },
+  };
 }
 
 export interface DetailPanelProps {
   pad: PadBinding | null;
   shortcutCapability: ShortcutCapabilityState;
+  feedbackMessage?: string | null;
+  onSavePad?: (draft: DetailPadDraft) => Promise<void> | void;
+  onClearPad?: (pad: PadBinding) => Promise<void> | void;
+  onTestAction?: (padId: string) => Promise<void> | void;
 }
 
 export function DetailPanel({
   pad,
   shortcutCapability,
+  feedbackMessage = null,
+  onSavePad,
+  onClearPad,
+  onTestAction,
 }: DetailPanelProps) {
-  const isShortcutAction = pad?.action.type === "send_shortcut";
+  const [draft, setDraft] = useState<DetailPadDraft>(() => createDetailDraft(pad));
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(createDetailDraft(pad));
+    setValidationMessage(null);
+  }, [pad]);
+
+  const isShortcutAction = draft.actionType === "send_shortcut";
   const isShortcutDisabled =
     isShortcutAction && shortcutCapability === "unavailable";
   const isTestDisabled =
-    pad === null || pad.action.type === "unassigned" || isShortcutDisabled;
+    pad === null || draft.actionType === "unassigned" || isShortcutDisabled;
+  const isSaveDisabled = pad === null;
+
+  function updateDraft(next: Partial<DetailPadDraft>) {
+    setDraft((current) => ({
+      ...current,
+      ...next,
+    }));
+  }
+
+  function validateDraft(nextDraft: DetailPadDraft) {
+    const result = buildPadBindingFromDraft(nextDraft);
+    setValidationMessage(result.ok ? null : result.error);
+  }
+
+  async function handleSave() {
+    const result = buildPadBindingFromDraft(draft);
+    if (!result.ok) {
+      setValidationMessage(result.error);
+      return;
+    }
+
+    setValidationMessage(null);
+    await onSavePad?.(draft);
+  }
 
   return (
     <aside aria-label="Pad details" style={detailStyles.panel}>
@@ -103,18 +296,105 @@ export function DetailPanel({
 
       <section style={detailStyles.section}>
         <p style={detailStyles.fieldLabel}>Label</p>
-        <p style={detailStyles.fieldValue}>{pad?.label || "Unassigned"}</p>
-      </section>
-
-      <section style={detailStyles.section}>
-        <p style={detailStyles.fieldLabel}>Action</p>
-        <p style={detailStyles.fieldValue}>{describeAction(pad)}</p>
+        <input
+          aria-label="Pad label"
+          disabled={pad === null}
+          style={detailStyles.input}
+          value={draft.label}
+          onChange={(event) => {
+            const nextDraft = { ...draft, label: event.currentTarget.value };
+            setDraft(nextDraft);
+            validateDraft(nextDraft);
+          }}
+        />
       </section>
 
       <section style={detailStyles.section}>
         <p style={detailStyles.fieldLabel}>Color</p>
-        <p style={detailStyles.fieldValue}>{pad?.color ?? "off"}</p>
+        <select
+          aria-label="Pad color"
+          disabled={pad === null}
+          style={detailStyles.input}
+          value={draft.color}
+          onChange={(event) => {
+            updateDraft({ color: event.currentTarget.value as DetailPadDraft["color"] });
+          }}
+        >
+          {PAD_COLOR_OPTIONS.map((color) => (
+            <option key={color} value={color}>
+              {color}
+            </option>
+          ))}
+        </select>
       </section>
+
+      <section style={detailStyles.section}>
+        <p style={detailStyles.fieldLabel}>Action type</p>
+        <select
+          aria-label="Action type"
+          disabled={pad === null}
+          style={detailStyles.input}
+          value={draft.actionType}
+          onChange={(event) => {
+            const actionType = event.currentTarget.value as DetailPadDraft["actionType"];
+            const nextDraft = {
+              ...draft,
+              actionType,
+              selectedApp: actionType === "launch_or_focus_app" ? draft.selectedApp : null,
+              shortcutKeyInput: actionType === "send_shortcut" ? draft.shortcutKeyInput : "",
+              shortcutModifiers: actionType === "send_shortcut" ? draft.shortcutModifiers : [],
+            };
+            setDraft(nextDraft);
+            validateDraft(nextDraft);
+          }}
+        >
+          <option value="unassigned">Unassigned</option>
+          <option value="launch_or_focus_app">Launch / Focus app</option>
+          <option value="send_shortcut">Send shortcut</option>
+        </select>
+      </section>
+
+      {draft.actionType === "launch_or_focus_app" ? (
+        <section style={detailStyles.section}>
+          <p style={detailStyles.fieldLabel}>Target app</p>
+          <AppPicker
+            options={COMMON_APP_OPTIONS}
+            selectedApp={draft.selectedApp}
+            disabled={pad === null}
+            onSelectApp={(selectedApp: AppPickerOption | null) => {
+              const nextDraft = {
+                ...draft,
+                selectedApp,
+                label: draft.label || selectedApp?.appName || "",
+              };
+              setDraft(nextDraft);
+              validateDraft(nextDraft);
+            }}
+          />
+        </section>
+      ) : null}
+
+      {draft.actionType === "send_shortcut" ? (
+        <section style={detailStyles.section}>
+          <p style={detailStyles.fieldLabel}>Shortcut</p>
+          <ShortcutEditor
+            keyInput={draft.shortcutKeyInput}
+            modifiers={draft.shortcutModifiers}
+            disabled={pad === null}
+            validationMessage={validationMessage}
+            onKeyInputChange={(shortcutKeyInput) => {
+              const nextDraft = { ...draft, shortcutKeyInput };
+              setDraft(nextDraft);
+              validateDraft(nextDraft);
+            }}
+            onModifiersChange={(shortcutModifiers) => {
+              const nextDraft = { ...draft, shortcutModifiers };
+              setDraft(nextDraft);
+              validateDraft(nextDraft);
+            }}
+          />
+        </section>
+      ) : null}
 
       {isShortcutDisabled ? (
         <p style={detailStyles.capabilityNote}>
@@ -122,18 +402,44 @@ export function DetailPanel({
         </p>
       ) : null}
 
+      {validationMessage && draft.actionType !== "send_shortcut" ? (
+        <p style={detailStyles.error}>{validationMessage}</p>
+      ) : null}
+
+      {feedbackMessage ? <p style={detailStyles.meta}>{feedbackMessage}</p> : null}
+
       <div style={detailStyles.actions}>
         <button
           type="button"
           disabled={pad === null}
           style={getActionButtonStyle(pad !== null)}
+          onClick={() => {
+            if (pad) {
+              void onClearPad?.(pad);
+            }
+          }}
         >
           Clear binding
         </button>
         <button
           type="button"
+          disabled={isSaveDisabled}
+          style={getActionButtonStyle(!isSaveDisabled)}
+          onClick={() => {
+            void handleSave();
+          }}
+        >
+          Save binding
+        </button>
+        <button
+          type="button"
           disabled={isTestDisabled}
           style={getActionButtonStyle(!isTestDisabled)}
+          onClick={() => {
+            if (pad !== null) {
+              void onTestAction?.(pad.padId);
+            }
+          }}
         >
           Test action
         </button>
