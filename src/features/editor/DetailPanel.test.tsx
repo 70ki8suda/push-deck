@@ -130,6 +130,25 @@ describe("Task 12 detail panel editing", () => {
     });
   });
 
+  it("keeps the app picker usable before installed-app candidates are injected", () => {
+    const html = renderToStaticMarkup(
+      <DetailPanel
+        pad={createPadBinding("r0c0", {
+          action: {
+            type: "launch_or_focus_app",
+            bundleId: "com.apple.finder",
+            appName: "Finder",
+          },
+        })}
+        shortcutCapability="available"
+      />,
+    );
+
+    expect(html).toContain("Choose an app");
+    expect(html).toContain("Finder");
+    expect(html).toContain("Terminal");
+  });
+
   it("normalizes shortcut modifiers before save", () => {
     expect(
       buildPadBindingFromDraft(

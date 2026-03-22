@@ -1,6 +1,25 @@
 import type { CSSProperties } from "react";
 import type { AppPickerOption } from "../../lib/types";
 
+const COMMON_APP_OPTIONS = [
+  {
+    bundleId: "com.apple.finder",
+    appName: "Finder",
+  },
+  {
+    bundleId: "com.apple.Safari",
+    appName: "Safari",
+  },
+  {
+    bundleId: "com.google.Chrome",
+    appName: "Google Chrome",
+  },
+  {
+    bundleId: "com.apple.Terminal",
+    appName: "Terminal",
+  },
+] as const satisfies readonly AppPickerOption[];
+
 const pickerStyles = {
   select: {
     background: "rgba(245, 240, 232, 0.05)",
@@ -25,6 +44,16 @@ export function AppPicker({
   disabled = false,
   onSelectApp,
 }: AppPickerProps) {
+  const effectiveOptions =
+    options.length > 0
+      ? options
+      : selectedApp === null ||
+          COMMON_APP_OPTIONS.some(
+            (option) => option.bundleId === selectedApp.bundleId,
+          )
+        ? COMMON_APP_OPTIONS
+        : [...COMMON_APP_OPTIONS, selectedApp];
+
   return (
     <select
       aria-label="App picker"
@@ -33,15 +62,17 @@ export function AppPicker({
       style={pickerStyles.select}
       onChange={(event) => {
         const nextApp =
-          options.find((option) => option.bundleId === event.currentTarget.value) ??
+          effectiveOptions.find(
+            (option) => option.bundleId === event.currentTarget.value,
+          ) ??
           null;
         onSelectApp(nextApp);
       }}
     >
       <option value="">
-        {options.length > 0 ? "Choose an app" : "No installed apps loaded"}
+        Choose an app
       </option>
-      {options.map((option) => (
+      {effectiveOptions.map((option) => (
         <option key={option.bundleId} value={option.bundleId}>
           {option.appName}
         </option>
