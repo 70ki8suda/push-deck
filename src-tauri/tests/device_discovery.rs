@@ -4,7 +4,7 @@ use push_deck::app_state::{
 };
 use push_deck::device::discovery::{
     discover_push_device, emit_discovery_state, DeviceDiscoveryError, DeviceDiscoverySource,
-    PushDeviceService,
+    PushDeviceService, SystemDiscoverySource,
 };
 use push_deck::events::RUNTIME_EVENT_NAME;
 use serde_json::json;
@@ -133,6 +133,73 @@ fn discovery_state_is_emitted_as_device_owned_runtime_event_only() {
     assert!(
         rx.recv_timeout(Duration::from_millis(100)).is_err(),
         "discovery should emit only the canonical state and device events"
+    );
+}
+
+#[test]
+fn system_profiler_json_extracts_nested_push_three_devices() {
+    let payload = r#"{
+      "SPUSBDataType": [
+        {
+          "_name": "USB31Bus",
+          "_items": [
+            {
+              "_name": "USB3.1 Hub",
+              "_items": [
+                {
+                  "_name": "Ableton Push 3",
+                  "serial_num": "P3-123",
+                  "location_id": "0x02110000 / 3",
+                  "product_id": "0xbeef"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }"#;
+
+    let devices =
+        SystemDiscoverySource::from_system_profiler_json(payload).expect("payload should parse");
+
+    assert_eq!(
+        devices,
+        vec![DeviceEndpointDescriptor::push_3("P3-123", "Ableton Push 3")]
+    );
+}
+
+#[test]
+fn system_profiler_json_dedupes_duplicate_push_three_entries() {
+    let payload = r#"{
+      "SPUSBDataType": [
+        {
+          "_name": "USB31Bus",
+          "_items": [
+            { "_name": "Ableton Push 3", "serial_num": "P3-123" },
+            { "_name": "Ableton Push 3", "serial_num": "P3-123" }
+          ]
+        }
+      ]
+    }"#;
+
+    let devices =
+        SystemDiscoverySource::from_system_profiler_json(payload).expect("payload should parse");
+
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0].endpoint_id, "P3-123");
+}
+
+#[test]
+fn invalid_system_profiler_json_returns_backend_error() {
+    let error = SystemDiscoverySource::from_system_profiler_json("{ nope")
+        .expect_err("invalid json should fail");
+
+    #[allow(irrefutable_let_patterns)]
+    let DeviceDiscoveryError::Backend(error) = error;
+    assert!(
+        error.message.starts_with("failed to parse system_profiler usb json:"),
+        "unexpected parse error message: {}",
+        error.message
     );
 }
 

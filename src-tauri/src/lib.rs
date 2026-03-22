@@ -10,7 +10,11 @@ pub mod events;
 pub mod macos;
 
 use crate::commands::{CurrentConfigResponse, DefaultCommandHost};
+use crate::config::store::ConfigStoreBackend;
+use crate::device::DeviceDiscoverySource;
+use crate::device::SystemDiscoverySource;
 use crate::events::{emit_runtime_event, RuntimeEvent};
+use crate::macos::ActionBackend;
 use std::error::Error;
 use tauri::Manager;
 
@@ -28,6 +32,25 @@ impl crate::device::DeviceDiscoverySource for NullDiscoverySource {
 
 pub fn should_hide_on_close(window_label: &str) -> bool {
     window_label == "main"
+}
+
+pub fn refresh_runtime_with_fallback<S, A, P, F>(
+    host: &commands::CommandHost<S, A>,
+    primary: &P,
+    fallback: &F,
+) -> Result<(), commands::CommandError>
+where
+    S: ConfigStoreBackend,
+    A: ActionBackend,
+    P: DeviceDiscoverySource,
+    F: DeviceDiscoverySource,
+{
+    if let Err(error) = host.refresh_runtime(primary) {
+        eprintln!("device discovery unavailable at startup: {error}");
+        host.refresh_runtime(fallback)?;
+    }
+
+    Ok(())
 }
 
 fn emit_runtime_snapshot<R: tauri::Runtime>(
@@ -74,7 +97,7 @@ fn bootstrap_runtime<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     host: &DefaultCommandHost,
 ) -> Result<(), Box<dyn Error>> {
-    host.refresh_runtime(&NullDiscoverySource)?;
+    refresh_runtime_with_fallback(host, &SystemDiscoverySource, &NullDiscoverySource)?;
     emit_runtime_snapshot(app, host)
 }
 

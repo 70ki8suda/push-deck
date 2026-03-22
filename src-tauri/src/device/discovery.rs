@@ -1,7 +1,12 @@
 use crate::app_state::{AppState, DeviceConnectionState, DeviceEndpointDescriptor, RuntimeState};
 use crate::events::{emit_runtime_event, RuntimeEvent};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashSet;
 use tauri::{Emitter, Runtime};
+
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceDiscoveryBackendError {
@@ -29,12 +34,98 @@ pub trait DeviceDiscoverySource {
     fn discover_devices(&self) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError>;
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemDiscoverySource;
+
 impl DeviceDiscoveryBackendError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
     }
+}
+
+impl SystemDiscoverySource {
+    pub fn from_system_profiler_json(
+        payload: &str,
+    ) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError> {
+        let value: Value = serde_json::from_str(payload).map_err(|error| {
+            DeviceDiscoveryError::backend(format!(
+                "failed to parse system_profiler usb json: {error}"
+            ))
+        })?;
+
+        let mut endpoints = Vec::new();
+        collect_system_profiler_devices(&value, &mut endpoints);
+        dedupe_endpoints(&mut endpoints);
+        Ok(endpoints)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl DeviceDiscoverySource for SystemDiscoverySource {
+    fn discover_devices(&self) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError> {
+        let output = Command::new("system_profiler")
+            .args(["SPUSBDataType", "-json"])
+            .output()
+            .map_err(|error| {
+                DeviceDiscoveryError::backend(format!(
+                    "failed to run system_profiler SPUSBDataType -json: {error}"
+                ))
+            })?;
+
+        if !output.status.success() {
+            return Err(DeviceDiscoveryError::backend(
+                String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            ));
+        }
+
+        Self::from_system_profiler_json(&String::from_utf8_lossy(&output.stdout))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+impl DeviceDiscoverySource for SystemDiscoverySource {
+    fn discover_devices(&self) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError> {
+        Ok(vec![])
+    }
+}
+
+fn collect_system_profiler_devices(value: &Value, endpoints: &mut Vec<DeviceEndpointDescriptor>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_system_profiler_devices(item, endpoints);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(name) = map.get("_name").and_then(Value::as_str) {
+                let normalized = name.to_ascii_lowercase();
+                if normalized.contains("push 3") || normalized == "ableton push 3" {
+                    let endpoint_id = map
+                        .get("serial_num")
+                        .or_else(|| map.get("location_id"))
+                        .or_else(|| map.get("product_id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or(name);
+                    endpoints.push(DeviceEndpointDescriptor::push_3(
+                        endpoint_id.to_string(),
+                        name.to_string(),
+                    ));
+                }
+            }
+
+            for nested in map.values() {
+                collect_system_profiler_devices(nested, endpoints);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn dedupe_endpoints(endpoints: &mut Vec<DeviceEndpointDescriptor>) {
+    let mut seen = HashSet::new();
+    endpoints.retain(|candidate| seen.insert(candidate.endpoint_id.clone()));
 }
 
 #[derive(Debug)]

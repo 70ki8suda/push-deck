@@ -4,7 +4,7 @@ use push_deck::config::schema::{PadAction, PadBinding, PadColorId};
 use push_deck::config::store::{ConfigStore, ConfigStoreBackend};
 use push_deck::device::{DeviceDiscoveryError, DeviceDiscoverySource};
 use push_deck::macos::{ActionBackend, MacosError};
-use push_deck::should_hide_on_close;
+use push_deck::{refresh_runtime_with_fallback, should_hide_on_close};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -144,6 +144,36 @@ fn main_window_close_requests_are_hidden_instead_of_closed() {
     assert!(!should_hide_on_close("preferences"));
 }
 
+#[test]
+fn discovery_backend_failures_fall_back_to_waiting_for_device() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let host = CommandHost::bootstrap(store, TestActionBackend::default())
+        .expect("bootstrap should succeed");
+
+    refresh_runtime_with_fallback(
+        &host,
+        &TestDiscoverySource::failing("system_profiler unavailable"),
+        &TestDiscoverySource::waiting(),
+    )
+    .expect("fallback refresh should keep startup alive");
+
+    let response = host.load_current_config().expect("load should succeed");
+    let CurrentConfigResponse::Ready {
+        device_name,
+        device_connected,
+        runtime_state,
+        ..
+    } = response
+    else {
+        panic!("expected ready response");
+    };
+
+    assert_eq!(device_name, None);
+    assert!(!device_connected);
+    assert_eq!(runtime_state.app_state, AppState::WaitingForDevice);
+}
+
 #[derive(Clone, Default)]
 struct TestConfigStoreBackend {
     state: Arc<Mutex<TestConfigStoreBackendState>>,
@@ -244,6 +274,12 @@ impl TestDiscoverySource {
                 "endpoint-1",
                 display_name,
             )]),
+        }
+    }
+
+    fn failing(message: &str) -> Self {
+        Self {
+            response: Err(DeviceDiscoveryError::backend(message)),
         }
     }
 }
