@@ -24,3 +24,21 @@ Ableton Push 3 を macOS 上で Stream Deck のように使うためのデスク
 - `npm run build`
 - `npm run lint`
 - `cargo check --manifest-path src-tauri/Cargo.toml`
+
+## Developer Workflow
+
+- `make dev` starts the Tauri app in development mode.
+- `make lint` runs the frontend typecheck and a Rust compile check.
+- `make test` runs the frontend test suite and the Rust test suite.
+- `make build` runs the frontend build and Rust build.
+- `make check` runs `make lint` and `make test`.
+
+The `npm` scripts are still available if you want to work on a narrower layer:
+
+- `npm run dev` starts the Vite frontend only.
+- `npm run dev:app` starts the Tauri app.
+- `npm run build` builds the frontend bundle.
+- `npm run lint` checks the frontend types.
+- `npm test` runs the frontend tests.
+- `cargo check --manifest-path src-tauri/Cargo.toml` checks the Rust app.
+- `cargo test --manifest-path src-tauri/Cargo.toml` runs the Rust test targets.
