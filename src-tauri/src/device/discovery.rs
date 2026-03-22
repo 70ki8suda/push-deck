@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use tauri::{Emitter, Runtime};
 
 #[cfg(target_os = "macos")]
+use coremidi::{Destinations, Endpoint, Sources};
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +39,14 @@ pub trait DeviceDiscoverySource {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemDiscoverySource;
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CoreMidiDiscoverySource;
+
+pub struct StartupDiscoverySource<P, S> {
+    primary: P,
+    fallback: S,
+}
+
 impl DeviceDiscoveryBackendError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
@@ -59,6 +69,12 @@ impl SystemDiscoverySource {
         collect_system_profiler_devices(&value, &mut endpoints);
         dedupe_endpoints(&mut endpoints);
         Ok(endpoints)
+    }
+}
+
+impl<P, S> StartupDiscoverySource<P, S> {
+    pub fn new(primary: P, fallback: S) -> Self {
+        Self { primary, fallback }
     }
 }
 
@@ -88,6 +104,36 @@ impl DeviceDiscoverySource for SystemDiscoverySource {
 impl DeviceDiscoverySource for SystemDiscoverySource {
     fn discover_devices(&self) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError> {
         Ok(vec![])
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl DeviceDiscoverySource for CoreMidiDiscoverySource {
+    fn discover_devices(&self) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError> {
+        let mut endpoints = Vec::new();
+        collect_coremidi_endpoints(&mut endpoints);
+        dedupe_endpoints(&mut endpoints);
+        Ok(endpoints)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+impl DeviceDiscoverySource for CoreMidiDiscoverySource {
+    fn discover_devices(&self) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError> {
+        Ok(vec![])
+    }
+}
+
+impl<P, S> DeviceDiscoverySource for StartupDiscoverySource<P, S>
+where
+    P: DeviceDiscoverySource,
+    S: DeviceDiscoverySource,
+{
+    fn discover_devices(&self) -> Result<Vec<DeviceEndpointDescriptor>, DeviceDiscoveryError> {
+        match self.primary.discover_devices() {
+            Ok(devices) if !devices.is_empty() => Ok(devices),
+            Ok(_) | Err(_) => self.fallback.discover_devices(),
+        }
     }
 }
 
@@ -128,6 +174,52 @@ fn dedupe_endpoints(endpoints: &mut Vec<DeviceEndpointDescriptor>) {
     endpoints.retain(|candidate| seen.insert(candidate.endpoint_id.clone()));
 }
 
+#[cfg(target_os = "macos")]
+fn collect_coremidi_endpoints(endpoints: &mut Vec<DeviceEndpointDescriptor>) {
+    collect_coremidi_sources(endpoints);
+    collect_coremidi_destinations(endpoints);
+}
+
+#[cfg(target_os = "macos")]
+fn collect_coremidi_sources(endpoints: &mut Vec<DeviceEndpointDescriptor>) {
+    for source in Sources {
+        collect_coremidi_endpoint(&source, endpoints);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn collect_coremidi_destinations(endpoints: &mut Vec<DeviceEndpointDescriptor>) {
+    for destination in Destinations {
+        collect_coremidi_endpoint(&destination, endpoints);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn collect_coremidi_endpoint(endpoint: &Endpoint, endpoints: &mut Vec<DeviceEndpointDescriptor>) {
+    let Some(display_name) = endpoint.display_name().or_else(|| endpoint.name()) else {
+        return;
+    };
+
+    if !is_push_3_display_name(&display_name) {
+        return;
+    }
+
+    let endpoint_id = endpoint
+        .unique_id()
+        .map(|unique_id| unique_id.to_string())
+        .unwrap_or_else(|| display_name.clone());
+
+    endpoints.push(DeviceEndpointDescriptor::push_3(endpoint_id, display_name));
+}
+
+fn is_push_3_display_name(display_name: &str) -> bool {
+    display_name.to_ascii_lowercase().contains("push 3")
+}
+
+fn is_user_port_display_name(display_name: &str) -> bool {
+    display_name.to_ascii_lowercase().contains("user port")
+}
+
 #[derive(Debug)]
 pub struct PushDeviceService<S> {
     source: S,
@@ -161,10 +253,14 @@ where
 pub fn discover_push_device(candidates: Vec<DeviceEndpointDescriptor>) -> DeviceDiscoveryResult {
     let active_device = candidates
         .into_iter()
-        .find(|candidate| candidate.is_push_3);
+        .enumerate()
+        .filter(|(_, candidate)| candidate.is_push_3)
+        .min_by_key(|(index, candidate)| {
+            (!is_user_port_display_name(&candidate.display_name), *index)
+        });
 
     match active_device {
-        Some(endpoint) => DeviceDiscoveryResult {
+        Some((_, endpoint)) => DeviceDiscoveryResult {
             app_state: AppState::Ready,
             connection: DeviceConnectionState::Connected { endpoint },
         },

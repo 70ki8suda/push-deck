@@ -11,8 +11,8 @@ pub mod macos;
 
 use crate::commands::{CurrentConfigResponse, DefaultCommandHost};
 use crate::config::store::ConfigStoreBackend;
-use crate::device::DeviceDiscoverySource;
 use crate::device::SystemDiscoverySource;
+use crate::device::{CoreMidiDiscoverySource, DeviceDiscoverySource, StartupDiscoverySource};
 use crate::events::{emit_runtime_event, RuntimeEvent};
 use crate::macos::ActionBackend;
 use std::error::Error;
@@ -97,7 +97,9 @@ fn bootstrap_runtime<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     host: &DefaultCommandHost,
 ) -> Result<(), Box<dyn Error>> {
-    refresh_runtime_with_fallback(host, &SystemDiscoverySource, &NullDiscoverySource)?;
+    let startup_discovery =
+        StartupDiscoverySource::new(CoreMidiDiscoverySource, SystemDiscoverySource);
+    refresh_runtime_with_fallback(host, &startup_discovery, &NullDiscoverySource)?;
     emit_runtime_snapshot(app, host)
 }
 

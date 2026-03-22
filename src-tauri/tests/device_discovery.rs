@@ -64,13 +64,35 @@ fn multiple_candidate_devices_bind_the_first_push_three_match() {
 }
 
 #[test]
+fn user_port_is_preferred_over_other_push_three_ports() {
+    let user_port = DeviceEndpointDescriptor::push_3("user-port", "Ableton Push 3 User Port");
+    let source = TestDiscoverySource::new(Ok(vec![
+        DeviceEndpointDescriptor::push_3("midi-port", "Ableton Push 3 MIDI Port"),
+        user_port.clone(),
+    ]));
+    let mut service = PushDeviceService::new(source);
+
+    let result = service.discover().expect("discovery should succeed");
+
+    assert_eq!(
+        result.connection,
+        DeviceConnectionState::Connected {
+            endpoint: user_port.clone()
+        }
+    );
+    assert_eq!(service.active_endpoint(), Some(&user_port));
+}
+
+#[test]
 fn backend_discovery_error_is_returned_verbatim() {
     let source = TestDiscoverySource::new(Err(DeviceDiscoveryError::backend(
         "midi backend unavailable",
     )));
     let mut service = PushDeviceService::new(source);
 
-    let error = service.discover().expect_err("backend error should bubble up");
+    let error = service
+        .discover()
+        .expect_err("backend error should bubble up");
 
     assert_eq!(
         error,
@@ -197,7 +219,9 @@ fn invalid_system_profiler_json_returns_backend_error() {
     #[allow(irrefutable_let_patterns)]
     let DeviceDiscoveryError::Backend(error) = error;
     assert!(
-        error.message.starts_with("failed to parse system_profiler usb json:"),
+        error
+            .message
+            .starts_with("failed to parse system_profiler usb json:"),
         "unexpected parse error message: {}",
         error.message
     );

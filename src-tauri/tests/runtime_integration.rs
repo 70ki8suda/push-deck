@@ -2,7 +2,7 @@ use push_deck::app_state::{AppState, DeviceEndpointDescriptor};
 use push_deck::commands::{CommandHost, CurrentConfigResponse, UpdatePadBindingRequest};
 use push_deck::config::schema::{PadAction, PadBinding, PadColorId};
 use push_deck::config::store::{ConfigStore, ConfigStoreBackend};
-use push_deck::device::{DeviceDiscoveryError, DeviceDiscoverySource};
+use push_deck::device::{DeviceDiscoveryError, DeviceDiscoverySource, StartupDiscoverySource};
 use push_deck::macos::{ActionBackend, MacosError};
 use push_deck::{refresh_runtime_with_fallback, should_hide_on_close};
 use std::collections::HashMap;
@@ -34,7 +34,10 @@ fn first_launch_creates_default_config_and_waits_for_device() {
     assert_eq!(device_name, None);
     assert!(!device_connected);
     assert_eq!(runtime_state.app_state, AppState::WaitingForDevice);
-    assert_eq!(runtime_state.capabilities.shortcut, push_deck::app_state::ShortcutCapabilityState::Available);
+    assert_eq!(
+        runtime_state.capabilities.shortcut,
+        push_deck::app_state::ShortcutCapabilityState::Available
+    );
     assert!(backend.file_contents(&path("config.json")).is_some());
 }
 
@@ -122,7 +125,9 @@ fn save_failed_state_returns_to_prior_stable_state_after_retry() {
     host.update_pad_binding(request.clone())
         .expect_err("save should fail while backend rejects writes");
 
-    let failed = host.load_current_config().expect("load should still succeed");
+    let failed = host
+        .load_current_config()
+        .expect("load should still succeed");
     let CurrentConfigResponse::Ready { runtime_state, .. } = failed else {
         panic!("expected ready response");
     };
@@ -172,6 +177,37 @@ fn discovery_backend_failures_fall_back_to_waiting_for_device() {
     assert_eq!(device_name, None);
     assert!(!device_connected);
     assert_eq!(runtime_state.app_state, AppState::WaitingForDevice);
+}
+
+#[test]
+fn startup_discovery_uses_system_profiler_after_coremidi_returns_no_devices() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let host = CommandHost::bootstrap(store, TestActionBackend::default())
+        .expect("bootstrap should succeed");
+
+    let startup = StartupDiscoverySource::new(
+        TestDiscoverySource::waiting(),
+        TestDiscoverySource::connected("Ableton Push 3 User Port"),
+    );
+
+    refresh_runtime_with_fallback(&host, &startup, &TestDiscoverySource::waiting())
+        .expect("startup discovery should succeed");
+
+    let response = host.load_current_config().expect("load should succeed");
+    let CurrentConfigResponse::Ready {
+        device_name,
+        device_connected,
+        runtime_state,
+        ..
+    } = response
+    else {
+        panic!("expected ready response");
+    };
+
+    assert_eq!(device_name.as_deref(), Some("Ableton Push 3 User Port"));
+    assert!(device_connected);
+    assert_eq!(runtime_state.app_state, AppState::Ready);
 }
 
 #[derive(Clone, Default)]
