@@ -3,12 +3,7 @@ use crate::macos::{ActionBackend, MacosError};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-#[cfg(not(test))]
-use crate::app_state::{record_shortcut_capability, ShortcutCapabilityState};
-#[cfg(test)]
-use push_deck::app_state::{
-    record_shortcut_capability, ShortcutCapabilityState,
-};
+use push_deck::app_state::{record_shortcut_capability, ShortcutCapabilityState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SendShortcutError {

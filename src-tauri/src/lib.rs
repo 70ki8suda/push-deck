@@ -1,3 +1,5 @@
+extern crate self as push_deck;
+
 pub mod actions;
 pub mod app_state;
 pub mod commands;
