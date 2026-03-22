@@ -3,7 +3,8 @@ use push_deck::device::colors::map_pad_color_id;
 use push_deck::device::push3::{
     coordinate_for_pad_id, coordinate_for_transport_pad_index, decode_transport_pad_input,
     pad_id_for_coordinate, render_pad_leds, transport_pad_index_for_coordinate,
-    Push3PadCoordinate, Push3PadLed, Push3TransportLedCommand, Push3TransportPadIndex,
+    DecodedPadInputMessage, Push3PadCoordinate, Push3PadLed, Push3TransportLedCommand,
+    Push3TransportPadIndex,
     Push3TransportPadInputMessage,
 };
 
@@ -73,8 +74,34 @@ fn inbound_transport_pad_messages_resolve_to_the_correct_pad_id() {
 
             let decoded = decode_transport_pad_input(message).expect("pad press should decode");
 
-            assert_eq!(decoded.pad_id, expected_pad_id);
-            assert_eq!(decoded.velocity, 127);
+            assert_eq!(
+                decoded,
+                DecodedPadInputMessage::PadPressed {
+                    pad_id: expected_pad_id,
+                    velocity: 127,
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn inbound_transport_pad_releases_resolve_to_the_correct_pad_id() {
+    for row in 0..8 {
+        for column in 0..8 {
+            let expected_pad_id = format!("r{row}c{column}");
+            let coordinate = Push3PadCoordinate { row, column };
+            let transport_index = transport_pad_index_for_coordinate(coordinate).expect("index");
+            let message = Push3TransportPadInputMessage::PadReleased { transport_index };
+
+            let decoded = decode_transport_pad_input(message).expect("pad release should decode");
+
+            assert_eq!(
+                decoded,
+                DecodedPadInputMessage::PadReleased {
+                    pad_id: expected_pad_id,
+                }
+            );
         }
     }
 }

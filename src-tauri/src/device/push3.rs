@@ -26,9 +26,9 @@ pub enum Push3TransportPadInputMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodedPadInput {
-    pub pad_id: String,
-    pub velocity: u8,
+pub enum DecodedPadInputMessage {
+    PadPressed { pad_id: String, velocity: u8 },
+    PadReleased { pad_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,15 +92,19 @@ pub fn coordinate_for_transport_pad_index(
 
 pub fn decode_transport_pad_input(
     message: Push3TransportPadInputMessage,
-) -> Option<DecodedPadInput> {
+) -> Option<DecodedPadInputMessage> {
     match message {
         Push3TransportPadInputMessage::PadPressed {
             transport_index,
             velocity,
         } => coordinate_for_transport_pad_index(transport_index)
             .and_then(|coordinate| pad_id_for_coordinate(coordinate))
-            .map(|pad_id| DecodedPadInput { pad_id, velocity }),
-        Push3TransportPadInputMessage::PadReleased { .. } => None,
+            .map(|pad_id| DecodedPadInputMessage::PadPressed { pad_id, velocity }),
+        Push3TransportPadInputMessage::PadReleased { transport_index } => {
+            coordinate_for_transport_pad_index(transport_index)
+                .and_then(|coordinate| pad_id_for_coordinate(coordinate))
+                .map(|pad_id| DecodedPadInputMessage::PadReleased { pad_id })
+        }
     }
 }
 
