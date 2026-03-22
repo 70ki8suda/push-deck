@@ -42,3 +42,5 @@ The `npm` scripts are still available if you want to work on a narrower layer:
 - `npm test` runs the frontend tests.
 - `cargo check --manifest-path src-tauri/Cargo.toml` checks the Rust app.
 - `cargo test --manifest-path src-tauri/Cargo.toml` runs the Rust test targets.
+
+The latest controller verification summary lives in `docs/superpowers/plans/verification-notes.md`.
