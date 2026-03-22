@@ -80,7 +80,31 @@ fn inbound_transport_pad_messages_resolve_to_the_correct_pad_id() {
 }
 
 #[test]
-fn render_narrow_led_entries_to_transport_commands_in_row_major_order() {
+fn push3_user_port_pad_notes_follow_the_observed_corner_mapping() {
+    assert_eq!(
+        transport_pad_index_for_coordinate(Push3PadCoordinate { row: 0, column: 0 }),
+        Some(Push3TransportPadIndex(0x5C))
+    );
+    assert_eq!(
+        transport_pad_index_for_coordinate(Push3PadCoordinate { row: 7, column: 7 }),
+        Some(Push3TransportPadIndex(0x2B))
+    );
+    assert_eq!(
+        transport_pad_index_for_coordinate(Push3PadCoordinate { row: 3, column: 3 }),
+        Some(Push3TransportPadIndex(0x47))
+    );
+    assert_eq!(
+        coordinate_for_transport_pad_index(Push3TransportPadIndex(0x5C)),
+        Some(Push3PadCoordinate { row: 0, column: 0 })
+    );
+    assert_eq!(
+        coordinate_for_transport_pad_index(Push3TransportPadIndex(0x2B)),
+        Some(Push3PadCoordinate { row: 7, column: 7 })
+    );
+}
+
+#[test]
+fn render_narrow_led_entries_to_transport_commands_using_the_same_note_mapping() {
     let frame = render_pad_leds(&[
         Push3PadLed {
             pad_id: "r0c0".to_string(),
@@ -96,14 +120,14 @@ fn render_narrow_led_entries_to_transport_commands_in_row_major_order() {
     assert_eq!(
         frame[0],
         Push3TransportLedCommand {
-            transport_index: Push3TransportPadIndex(0),
+            transport_index: Push3TransportPadIndex(0x5C),
             color_value: 5,
         }
     );
     assert_eq!(
         frame[63],
         Push3TransportLedCommand {
-            transport_index: Push3TransportPadIndex(63),
+            transport_index: Push3TransportPadIndex(0x2B),
             color_value: 9,
         }
     );

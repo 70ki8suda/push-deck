@@ -3,6 +3,7 @@ use super::colors::Push3Color;
 pub const PAD_ROWS: u8 = 8;
 pub const PAD_COLUMNS: u8 = 8;
 pub const PAD_COUNT: usize = (PAD_ROWS as usize) * (PAD_COLUMNS as usize);
+const PAD_NOTE_BASE: u8 = 0x24;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Push3PadCoordinate {
@@ -67,7 +68,7 @@ pub fn transport_pad_index_for_coordinate(
 ) -> Option<Push3TransportPadIndex> {
     if coordinate.row < PAD_ROWS && coordinate.column < PAD_COLUMNS {
         Some(Push3TransportPadIndex(
-            coordinate.row * PAD_COLUMNS + coordinate.column,
+            PAD_NOTE_BASE + (PAD_ROWS - 1 - coordinate.row) * PAD_COLUMNS + coordinate.column,
         ))
     } else {
         None
@@ -77,10 +78,12 @@ pub fn transport_pad_index_for_coordinate(
 pub fn coordinate_for_transport_pad_index(
     transport_index: Push3TransportPadIndex,
 ) -> Option<Push3PadCoordinate> {
-    if transport_index.0 < PAD_COUNT as u8 {
+    let note_offset = transport_index.0.checked_sub(PAD_NOTE_BASE)?;
+
+    if note_offset < PAD_COUNT as u8 {
         Some(Push3PadCoordinate {
-            row: transport_index.0 / PAD_COLUMNS,
-            column: transport_index.0 % PAD_COLUMNS,
+            row: PAD_ROWS - 1 - (note_offset / PAD_COLUMNS),
+            column: note_offset % PAD_COLUMNS,
         })
     } else {
         None
