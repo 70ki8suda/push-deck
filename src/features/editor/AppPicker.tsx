@@ -12,34 +12,15 @@ const pickerStyles = {
   },
 } satisfies Record<string, CSSProperties>;
 
-export const COMMON_APP_OPTIONS: readonly AppPickerOption[] = [
-  {
-    bundleId: "com.apple.finder",
-    appName: "Finder",
-  },
-  {
-    bundleId: "com.apple.Safari",
-    appName: "Safari",
-  },
-  {
-    bundleId: "com.apple.Terminal",
-    appName: "Terminal",
-  },
-  {
-    bundleId: "com.apple.TextEdit",
-    appName: "TextEdit",
-  },
-];
-
 export interface AppPickerProps {
-  options?: readonly AppPickerOption[];
+  options: readonly AppPickerOption[];
   selectedApp: AppPickerOption | null;
   disabled?: boolean;
   onSelectApp: (app: AppPickerOption | null) => void;
 }
 
 export function AppPicker({
-  options = COMMON_APP_OPTIONS,
+  options,
   selectedApp,
   disabled = false,
   onSelectApp,
@@ -57,7 +38,9 @@ export function AppPicker({
         onSelectApp(nextApp);
       }}
     >
-      <option value="">Choose an app</option>
+      <option value="">
+        {options.length > 0 ? "Choose an app" : "No installed apps loaded"}
+      </option>
       {options.map((option) => (
         <option key={option.bundleId} value={option.bundleId}>
           {option.appName}

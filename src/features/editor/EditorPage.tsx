@@ -2,6 +2,7 @@ import { startTransition, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { triggerTestAction, updatePadBinding } from "../../lib/api";
 import type {
+  AppPickerOption,
   Config,
   ConfigRecoveryState,
   DetailPadDraft,
@@ -32,6 +33,7 @@ export interface EditorPageProps {
   runtimeState: RuntimeState;
   recovery: ConfigRecoveryState | null;
   selectedPadId: string | null;
+  appOptions?: readonly AppPickerOption[];
   deviceName: string | null;
   isDeviceConnected: boolean;
   onRestoreDefaultConfig: () => void;
@@ -100,6 +102,7 @@ export function EditorPage({
   runtimeState,
   recovery,
   selectedPadId,
+  appOptions = [],
   deviceName,
   isDeviceConnected,
   onRestoreDefaultConfig,
@@ -198,6 +201,7 @@ export function EditorPage({
             onSelectPad={onSelectPad}
           />
           <DetailPanel
+            appOptions={appOptions}
             feedbackMessage={feedbackMessage}
             onClearPad={handleClearPad}
             onSavePad={handleSavePad}

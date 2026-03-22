@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
-import { AppPicker, COMMON_APP_OPTIONS } from "./AppPicker";
+import { AppPicker } from "./AppPicker";
 import { ShortcutEditor } from "./ShortcutEditor";
 import type {
   AppPickerOption,
@@ -231,6 +231,7 @@ export function buildPadBindingFromDraft(draft: DetailPadDraft): BuildResult {
 
 export interface DetailPanelProps {
   pad: PadBinding | null;
+  appOptions?: readonly AppPickerOption[];
   shortcutCapability: ShortcutCapabilityState;
   feedbackMessage?: string | null;
   onSavePad?: (draft: DetailPadDraft) => Promise<void> | void;
@@ -240,6 +241,7 @@ export interface DetailPanelProps {
 
 export function DetailPanel({
   pad,
+  appOptions = [],
   shortcutCapability,
   feedbackMessage = null,
   onSavePad,
@@ -358,7 +360,7 @@ export function DetailPanel({
         <section style={detailStyles.section}>
           <p style={detailStyles.fieldLabel}>Target app</p>
           <AppPicker
-            options={COMMON_APP_OPTIONS}
+            options={appOptions}
             selectedApp={draft.selectedApp}
             disabled={pad === null}
             onSelectApp={(selectedApp: AppPickerOption | null) => {
