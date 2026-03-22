@@ -66,6 +66,8 @@ function createRuntimeState(
 function createRecoveryResponse(): CurrentConfigRecoveryResponse {
   return {
     status: "recovery_required",
+    device_name: null,
+    device_connected: false,
     recovery: {
       config_path:
         "/Users/yasudanaoki/Library/Application Support/push-deck/config.json",

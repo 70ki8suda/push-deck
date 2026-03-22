@@ -1,9 +1,10 @@
-use crate::actions::{dispatch_pad_action, ActionExecutionError};
+use crate::actions::{dispatch_pad_action, send_shortcut::shortcut_capability_state, ActionExecutionError};
 use crate::app_state::{
     recorded_shortcut_capability, AppState, ConfigRecoveryState, RuntimeState,
 };
 use crate::config::schema::{Config, PadAction, PadBinding, DEFAULT_PROFILE_ID};
 use crate::config::store::{ConfigLoadOutcome, ConfigStore, ConfigStoreBackend, ConfigStoreError};
+use crate::device::{discover_push_device, DeviceDiscoverySource};
 use crate::macos::{ActionBackend, SystemMacosBackend};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -17,10 +18,14 @@ pub type DefaultCommandHost = CommandHost<crate::config::store::OsConfigStoreBac
 pub enum CurrentConfigResponse {
     Ready {
         config: Config,
+        device_name: Option<String>,
+        device_connected: bool,
         runtime_state: RuntimeState,
     },
     RecoveryRequired {
         recovery: ConfigRecoveryState,
+        device_name: Option<String>,
+        device_connected: bool,
         runtime_state: RuntimeState,
     },
 }
@@ -93,6 +98,8 @@ impl From<ActionExecutionError> for CommandError {
 struct CommandState {
     config: Option<Config>,
     recovery: Option<ConfigRecoveryState>,
+    device_name: Option<String>,
+    device_connected: bool,
     runtime_state: RuntimeState,
     stable_app_state: AppState,
 }
@@ -103,6 +110,8 @@ impl CommandState {
         Self {
             config: Some(Config::default()),
             recovery: None,
+            device_name: None,
+            device_connected: false,
             runtime_state: RuntimeState::new(app_state, recorded_shortcut_capability()),
             stable_app_state: app_state,
         }
@@ -113,6 +122,8 @@ impl CommandState {
         Self {
             config: None,
             recovery: Some(recovery),
+            device_name: None,
+            device_connected: false,
             runtime_state: RuntimeState::new(app_state, recorded_shortcut_capability()),
             stable_app_state: app_state,
         }
@@ -126,6 +137,27 @@ impl CommandState {
         self.config = Some(config);
         self.recovery = None;
         self.runtime_state.app_state = self.stable_app_state;
+    }
+
+    fn apply_runtime_environment(
+        &mut self,
+        app_state: AppState,
+        shortcut_capability: crate::app_state::ShortcutCapabilityState,
+        device_name: Option<String>,
+        device_connected: bool,
+    ) {
+        self.stable_app_state = if self.recovery.is_some() {
+            AppState::ConfigRecoveryRequired
+        } else {
+            app_state
+        };
+        self.device_name = device_name;
+        self.device_connected = device_connected;
+        self.runtime_state.capabilities.shortcut = shortcut_capability;
+
+        if self.runtime_state.app_state != AppState::SaveFailed {
+            self.runtime_state.app_state = self.stable_app_state;
+        }
     }
 
     fn enter_save_failed(&mut self) {
@@ -182,14 +214,49 @@ where
         match (&state.config, &state.recovery) {
             (Some(config), None) => Ok(CurrentConfigResponse::Ready {
                 config: config.clone(),
+                device_name: state.device_name.clone(),
+                device_connected: state.device_connected,
                 runtime_state: state.runtime_snapshot(),
             }),
             (None, Some(recovery)) => Ok(CurrentConfigResponse::RecoveryRequired {
                 recovery: recovery.clone(),
+                device_name: state.device_name.clone(),
+                device_connected: state.device_connected,
                 runtime_state: state.runtime_snapshot(),
             }),
             _ => Err(CommandError::RecoveryRequired),
         }
+    }
+
+    pub fn refresh_runtime<D>(&self, discovery_source: &D) -> Result<RuntimeState, CommandError>
+    where
+        D: DeviceDiscoverySource,
+    {
+        let discovery = discover_push_device(
+            discovery_source
+                .discover_devices()
+                .map_err(|error| CommandError::Action(format!("device discovery error: {error:?}")))?,
+        );
+        let shortcut_capability =
+            shortcut_capability_state(&self.action_backend).map_err(|error| {
+                CommandError::Action(format!("shortcut capability error: {error}"))
+            })?;
+
+        let mut state = self.state.lock().expect("command state lock poisoned");
+        let device_name = discovery
+            .connection
+            .endpoint()
+            .map(|endpoint| endpoint.display_name.clone());
+        let device_connected = device_name.is_some();
+
+        state.apply_runtime_environment(
+            discovery.app_state,
+            shortcut_capability,
+            device_name,
+            device_connected,
+        );
+
+        Ok(state.runtime_snapshot())
     }
 
     pub fn update_pad_binding(

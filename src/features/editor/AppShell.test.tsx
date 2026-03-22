@@ -65,6 +65,8 @@ describe("Task 11 app shell runtime wiring", () => {
   it("maps recovery payloads into locked-down editor state", () => {
     const response: CurrentConfigResponse = {
       status: "recovery_required",
+      device_name: null,
+      device_connected: false,
       recovery: {
         config_path: "/tmp/config.json",
         backup_path: "/tmp/config.broken.json",
@@ -80,6 +82,8 @@ describe("Task 11 app shell runtime wiring", () => {
 
     expect(deriveLoadedState(response)).toEqual({
       config: null,
+      deviceName: null,
+      isDeviceConnected: false,
       recovery: response.recovery,
       runtimeState: response.runtime_state,
       selectedPadId: null,
@@ -112,6 +116,8 @@ describe("Task 11 app shell runtime wiring", () => {
       loadCurrentConfig: vi.fn().mockResolvedValue({
         status: "ready",
         config: createConfig(),
+        device_name: "Ableton Push 3",
+        device_connected: true,
         runtime_state: createRuntimeState(),
       } satisfies CurrentConfigResponse),
       subscribeRuntimeEvent: vi.fn(async (listener) => {
@@ -132,7 +138,9 @@ describe("Task 11 app shell runtime wiring", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    capturedListener?.({
+    (
+      capturedListener as ((event: RuntimeEvent) => void) | null
+    )?.({
       type: "state_changed",
       state: createRuntimeState({
         app_state: "waiting_for_device",

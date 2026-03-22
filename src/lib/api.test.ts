@@ -38,6 +38,8 @@ describe("frontend api helpers", () => {
         },
         profiles: [],
       },
+      device_name: "Ableton Push 3",
+      device_connected: true,
       runtime_state: {
         app_state: "ready",
         capabilities: {
@@ -134,6 +136,8 @@ describe("frontend api helpers", () => {
   it("preserves recovery payloads from loadCurrentConfig", async () => {
     const recoveryResponse = {
       status: "recovery_required",
+      device_name: null,
+      device_connected: false,
       recovery: {
         config_path: "/Users/yasudanaoki/Library/Application Support/push-deck/config.json",
         backup_path:

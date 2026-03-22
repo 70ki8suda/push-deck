@@ -23,6 +23,8 @@ fn load_current_config_returns_the_active_config_state() {
 
     let CurrentConfigResponse::Ready {
         config,
+        device_name,
+        device_connected,
         runtime_state,
     } = response
     else {
@@ -30,6 +32,8 @@ fn load_current_config_returns_the_active_config_state() {
     };
 
     assert_eq!(config, Config::default());
+    assert_eq!(device_name, None);
+    assert!(!device_connected);
     assert_eq!(runtime_state.app_state, AppState::WaitingForDevice);
     assert_eq!(
         backend.file_contents(&path("config.json")),

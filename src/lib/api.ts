@@ -46,7 +46,10 @@ export function updatePadBinding(
 export function triggerTestAction(
   pad_id: string,
 ): Promise<TestActionResponse> {
-  return invokeCommand<TestActionResponse>("trigger_test_action", { pad_id });
+  return invokeCommand<TestActionResponse, { pad_id: string }>(
+    "trigger_test_action",
+    { pad_id },
+  );
 }
 
 export function restoreDefaultConfig(): Promise<RestoreDefaultConfigResponse> {

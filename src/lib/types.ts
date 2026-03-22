@@ -171,12 +171,16 @@ export interface ConfigRecoveryState {
 export interface CurrentConfigReadyResponse {
   status: "ready";
   config: Config;
+  device_name: string | null;
+  device_connected: boolean;
   runtime_state: RuntimeState;
 }
 
 export interface CurrentConfigRecoveryResponse {
   status: "recovery_required";
   recovery: ConfigRecoveryState;
+  device_name: string | null;
+  device_connected: boolean;
   runtime_state: RuntimeState;
 }
 

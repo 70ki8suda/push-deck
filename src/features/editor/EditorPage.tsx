@@ -36,6 +36,7 @@ export interface EditorPageProps {
   appOptions?: readonly AppPickerOption[];
   deviceName: string | null;
   isDeviceConnected: boolean;
+  onRuntimeRefreshRequested?: () => Promise<void> | void;
   onRestoreDefaultConfig: () => void;
   onSelectPad: (padId: string) => void;
 }
@@ -105,6 +106,7 @@ export function EditorPage({
   appOptions = [],
   deviceName,
   isDeviceConnected,
+  onRuntimeRefreshRequested,
   onRestoreDefaultConfig,
   onSelectPad,
 }: EditorPageProps) {
@@ -148,6 +150,7 @@ export function EditorPage({
     try {
       await applySavedBinding(result.binding);
     } catch (error) {
+      await onRuntimeRefreshRequested?.();
       startTransition(() => {
         setFeedbackMessage(
           error instanceof Error ? error.message : "Unable to save this pad binding.",
@@ -160,6 +163,7 @@ export function EditorPage({
     try {
       await applySavedBinding(clearPadBinding(pad));
     } catch (error) {
+      await onRuntimeRefreshRequested?.();
       startTransition(() => {
         setFeedbackMessage(
           error instanceof Error ? error.message : "Unable to clear this pad binding.",

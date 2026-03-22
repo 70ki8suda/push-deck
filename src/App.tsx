@@ -92,6 +92,8 @@ export function deriveLoadedState(response: CurrentConfigResponse) {
   if (response.status === "ready") {
     return {
       config: response.config,
+      deviceName: response.device_name,
+      isDeviceConnected: response.device_connected,
       recovery: null,
       runtimeState: response.runtime_state,
       selectedPadId: selectInitialPad(response.config),
@@ -100,6 +102,8 @@ export function deriveLoadedState(response: CurrentConfigResponse) {
 
   return {
     config: null,
+    deviceName: response.device_name,
+    isDeviceConnected: response.device_connected,
     recovery: response.recovery,
     runtimeState: response.runtime_state,
     selectedPadId: null,
@@ -109,7 +113,7 @@ export function deriveLoadedState(response: CurrentConfigResponse) {
 export function deriveRestoredState(response: RestoreDefaultConfigResponse) {
   return {
     config: response.config,
-    recovery: null,
+    recovery: null as ConfigRecoveryState | null,
     runtimeState: response.runtime_state,
     selectedPadId: selectInitialPad(response.config),
   };
@@ -176,6 +180,8 @@ export default function App() {
 
     startTransition(() => {
       setConfig(next.config);
+      setDeviceName(next.deviceName);
+      setIsDeviceConnected(next.isDeviceConnected);
       setRecovery(next.recovery);
       setRuntimeState(next.runtimeState);
       setSelectedPadId(next.selectedPadId);
@@ -234,6 +240,11 @@ export default function App() {
         setLoadError(null);
       });
     } catch (error) {
+      try {
+        await refreshRuntimeSnapshot();
+      } catch {
+        // Keep the existing UI state if the snapshot refresh fails too.
+      }
       startTransition(() => {
         setLoadError(
           error instanceof Error
@@ -242,6 +253,21 @@ export default function App() {
         );
       });
     }
+  }
+
+  async function refreshRuntimeSnapshot() {
+    const response = await loadCurrentConfig();
+    const next = deriveLoadedState(response);
+
+    startTransition(() => {
+      setConfig(next.config);
+      setDeviceName(next.deviceName);
+      setIsDeviceConnected(next.isDeviceConnected);
+      setRecovery(next.recovery);
+      setRuntimeState(next.runtimeState);
+      setSelectedPadId(next.selectedPadId);
+      setLoadError(null);
+    });
   }
 
   return (
@@ -270,6 +296,9 @@ export default function App() {
           isDeviceConnected={isDeviceConnected}
           onRestoreDefaultConfig={() => {
             void handleRestoreDefaultConfig();
+          }}
+          onRuntimeRefreshRequested={() => {
+            void refreshRuntimeSnapshot();
           }}
           onSelectPad={setSelectedPadId}
         />
