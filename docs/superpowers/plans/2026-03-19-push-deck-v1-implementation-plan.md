@@ -503,9 +503,16 @@ Commit message: `feat: add pad detail editors`
 **Files:**
 - Modify: `src-tauri/src/main.rs`
 - Modify: `src-tauri/src/lib.rs`
+- Modify: `src-tauri/src/commands.rs`
 - Modify: `src-tauri/tauri.conf.json`
 - Modify: `src/App.tsx`
+- Modify: `src/features/editor/EditorPage.tsx`
+- Modify: `src/lib/api.ts`
+- Modify: `src/lib/types.ts`
 - Test: `src-tauri/tests/runtime_integration.rs`
+- Test: `src/features/editor/AppShell.test.tsx`
+- Test: `src/features/editor/EditorPage.test.tsx`
+- Test: `src/lib/api.test.ts`
 
 - [ ] **Step 1: Write failing integration tests for startup paths**
 

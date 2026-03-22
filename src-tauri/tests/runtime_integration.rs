@@ -139,47 +139,6 @@ fn save_failed_state_returns_to_prior_stable_state_after_retry() {
 }
 
 #[test]
-fn runtime_refresh_clears_save_failed_after_non_recovery_failures() {
-    let backend = TestConfigStoreBackend::default();
-    let store = ConfigStore::with_backend(path("config.json"), backend.clone());
-    let host = CommandHost::bootstrap(store, TestActionBackend::default())
-        .expect("bootstrap should succeed");
-
-    host.refresh_runtime(&TestDiscoverySource::waiting())
-        .expect("runtime refresh should succeed");
-
-    backend.fail_next_write();
-    host.update_pad_binding(UpdatePadBindingRequest {
-        pad_id: "r0c0".to_string(),
-        binding: PadBinding {
-            pad_id: "r0c0".to_string(),
-            label: "Terminal".to_string(),
-            color: PadColorId::Blue,
-            action: PadAction::launch_or_focus_app("com.apple.Terminal", "Terminal"),
-        },
-    })
-    .expect_err("save should fail");
-
-    host.refresh_runtime(&TestDiscoverySource::connected("Ableton Push 3"))
-        .expect("runtime refresh should restore the latest stable state");
-
-    let response = host.load_current_config().expect("load should succeed");
-    let CurrentConfigResponse::Ready {
-        device_name,
-        device_connected,
-        runtime_state,
-        ..
-    } = response
-    else {
-        panic!("expected ready response");
-    };
-
-    assert_eq!(device_name.as_deref(), Some("Ableton Push 3"));
-    assert!(device_connected);
-    assert_eq!(runtime_state.app_state, AppState::Ready);
-}
-
-#[test]
 fn main_window_close_requests_are_hidden_instead_of_closed() {
     assert!(should_hide_on_close("main"));
     assert!(!should_hide_on_close("preferences"));

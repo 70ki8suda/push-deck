@@ -5,6 +5,5 @@ pub mod push3;
 pub use discovery::{
     discover_push_device, emit_discovery_state, DeviceDiscoveryBackendError,
     DeviceDiscoveryError, DeviceDiscoveryResult, DeviceDiscoverySource, PushDeviceService,
-    SystemDiscoverySource,
 };
 pub use crate::app_state::{DeviceConnectionState, DeviceEndpointDescriptor};

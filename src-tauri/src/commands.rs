@@ -255,9 +255,6 @@ where
             device_name,
             device_connected,
         );
-        if state.recovery.is_none() && state.runtime_state.app_state == AppState::SaveFailed {
-            state.clear_save_failed();
-        }
 
         Ok(state.runtime_snapshot())
     }
