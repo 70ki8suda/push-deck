@@ -297,9 +297,7 @@ export default function App() {
           onRestoreDefaultConfig={() => {
             void handleRestoreDefaultConfig();
           }}
-          onRuntimeRefreshRequested={() => {
-            void refreshRuntimeSnapshot();
-          }}
+          onRuntimeRefreshRequested={refreshRuntimeSnapshot}
           onSelectPad={setSelectedPadId}
         />
       </div>

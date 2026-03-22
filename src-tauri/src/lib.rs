@@ -8,22 +8,10 @@ pub mod events;
 pub mod macos;
 
 use crate::commands::{CurrentConfigResponse, DefaultCommandHost};
-use crate::device::DeviceDiscoverySource;
+use crate::device::SystemDiscoverySource;
 use crate::events::{emit_runtime_event, RuntimeEvent};
 use std::error::Error;
 use tauri::Manager;
-
-#[derive(Debug, Default, Clone, Copy)]
-struct NullDiscoverySource;
-
-impl DeviceDiscoverySource for NullDiscoverySource {
-    fn discover_devices(
-        &self,
-    ) -> Result<Vec<crate::app_state::DeviceEndpointDescriptor>, crate::device::DeviceDiscoveryError>
-    {
-        Ok(vec![])
-    }
-}
 
 pub fn should_hide_on_close(window_label: &str) -> bool {
     window_label == "main"
@@ -73,7 +61,7 @@ fn bootstrap_runtime<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     host: &DefaultCommandHost,
 ) -> Result<(), Box<dyn Error>> {
-    host.refresh_runtime(&NullDiscoverySource)?;
+    host.refresh_runtime(&SystemDiscoverySource)?;
     emit_runtime_snapshot(app, host)
 }
 
