@@ -4,7 +4,10 @@ use crate::app_state::{
 };
 use crate::config::schema::{Config, PadAction, PadBinding, DEFAULT_PROFILE_ID};
 use crate::config::store::{ConfigLoadOutcome, ConfigStore, ConfigStoreBackend, ConfigStoreError};
-use crate::device::{discover_push_device, DeviceDiscoverySource};
+use crate::device::{
+    discover_push_device, CoreMidiDiscoverySource, DeviceDiscoverySource, StartupDiscoverySource,
+    SystemDiscoverySource,
+};
 use crate::macos::{ActionBackend, SystemMacosBackend};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -316,6 +319,33 @@ where
         }
     }
 
+    pub fn dispatch_pad_press(&self, pad_id: &str) -> Result<(), CommandError> {
+        let binding = {
+            let state = self.state.lock().expect("command state lock poisoned");
+
+            if state.recovery.is_some() {
+                return Ok(());
+            }
+
+            let Some(config) = state.config.as_ref() else {
+                return Ok(());
+            };
+
+            find_pad_binding(config, pad_id)?.clone()
+        };
+
+        if matches!(binding.action, PadAction::Unassigned) {
+            return Ok(());
+        }
+
+        dispatch_pad_action(&self.action_backend, &binding.action)?;
+
+        let mut state = self.state.lock().expect("command state lock poisoned");
+        state.runtime_state.capabilities.shortcut = recorded_shortcut_capability();
+
+        Ok(())
+    }
+
     pub fn restore_default_config(&self) -> Result<RestoreDefaultConfigResponse, CommandError> {
         let mut state = self.state.lock().expect("command state lock poisoned");
         let recovery = state
@@ -399,6 +429,23 @@ fn find_pad_binding<'a>(config: &'a Config, pad_id: &str) -> Result<&'a PadBindi
 pub fn load_current_config(
     state: tauri::State<'_, DefaultCommandHost>,
 ) -> Result<CurrentConfigResponse, String> {
+    state.load_current_config().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn refresh_runtime_state(
+    state: tauri::State<'_, DefaultCommandHost>,
+) -> Result<CurrentConfigResponse, String> {
+    let startup_discovery =
+        StartupDiscoverySource::new(CoreMidiDiscoverySource, SystemDiscoverySource);
+
+    if let Err(error) = state.refresh_runtime(&startup_discovery) {
+        eprintln!("device discovery unavailable during refresh: {error}");
+        state
+            .refresh_runtime(&SystemDiscoverySource)
+            .map_err(|inner| inner.to_string())?;
+    }
+
     state.load_current_config().map_err(|error| error.to_string())
 }
 

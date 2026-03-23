@@ -1,6 +1,8 @@
 use push_deck::app_state::{AppState, RuntimeCapabilities, RuntimeState, ShortcutCapabilityState};
+use push_deck::device::Push3InputSubscription;
 use push_deck::display::{DisplayAdapter, DisplayFrame, DisplayTarget, NoopDisplayAdapter};
 use push_deck::events::{emit_runtime_event, RuntimeEvent, RUNTIME_EVENT_NAME};
+use push_deck::store_push3_input_subscription;
 use serde_json::json;
 use std::sync::mpsc::channel;
 use tauri::Listener;
@@ -42,6 +44,20 @@ fn runtime_event_serializes_with_tagged_payloads() {
             "pad_id": "r0c0"
         })
     );
+
+    let released = RuntimeEvent::PadReleased {
+        pad_id: "r0c0".to_string(),
+    };
+
+    let released_serialized = serde_json::to_value(released).expect("event should serialize");
+
+    assert_eq!(
+        released_serialized,
+        json!({
+            "type": "pad_released",
+            "pad_id": "r0c0"
+        })
+    );
 }
 
 #[test]
@@ -62,6 +78,16 @@ fn runtime_event_helper_emits_on_the_shared_channel() {
 
     let payload = rx.recv().expect("listener should receive payload");
     assert_eq!(payload, serde_json::to_string(&event).expect("payload should serialize"));
+}
+
+#[test]
+fn startup_input_subscription_is_a_noop_when_user_port_is_unavailable() {
+    let app = tauri::test::mock_app();
+
+    let managed =
+        store_push3_input_subscription(&app.handle(), Push3InputSubscription::NotConnected);
+
+    assert!(!managed);
 }
 
 #[test]

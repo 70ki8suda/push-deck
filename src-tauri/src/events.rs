@@ -14,6 +14,7 @@ pub enum RuntimeEvent {
         device_name: Option<String>,
     },
     PadPressed { pad_id: String },
+    PadReleased { pad_id: String },
     DisplayFrame { frame: DisplayFrame },
 }
 

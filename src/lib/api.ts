@@ -34,6 +34,10 @@ export function loadCurrentConfig(): Promise<CurrentConfigResponse> {
   return invokeCommand<CurrentConfigResponse>("load_current_config");
 }
 
+export function refreshRuntimeState(): Promise<CurrentConfigResponse> {
+  return invokeCommand<CurrentConfigResponse>("refresh_runtime_state");
+}
+
 export function updatePadBinding(
   request: UpdatePadBindingRequest,
 ): Promise<UpdatePadBindingResponse> {

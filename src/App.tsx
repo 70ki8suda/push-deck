@@ -8,6 +8,7 @@ import type { CSSProperties } from "react";
 import { EditorPage } from "./features/editor/EditorPage";
 import {
   loadCurrentConfig,
+  refreshRuntimeState,
   restoreDefaultConfig,
   subscribeRuntimeEvent,
 } from "./lib/api";
@@ -119,12 +120,42 @@ export function deriveRestoredState(response: RestoreDefaultConfigResponse) {
   };
 }
 
+type AppUiState = {
+  config: Config | null;
+  deviceName: string | null;
+  isDeviceConnected: boolean;
+  recovery: ConfigRecoveryState | null;
+  runtimeState: RuntimeState;
+  selectedPadId: string | null;
+};
+
+export function deriveRuntimeRefreshState(
+  current: AppUiState,
+  response: CurrentConfigResponse,
+) {
+  return {
+    config: current.config,
+    deviceName: response.device_name,
+    isDeviceConnected: response.device_connected,
+    recovery: response.status === "recovery_required" ? response.recovery : current.recovery,
+    runtimeState: response.runtime_state,
+    selectedPadId: current.selectedPadId,
+  };
+}
+
 type RuntimeBootstrapDeps = {
   loadCurrentConfig: typeof loadCurrentConfig;
   subscribeRuntimeEvent: typeof subscribeRuntimeEvent;
   applyLoadedState: (response: CurrentConfigResponse) => void;
   handleRuntimeEvent: (event: RuntimeEvent) => void;
   handleLoadError: (error: unknown) => void;
+};
+
+type RuntimeRefreshDeps = {
+  refreshRuntimeState: typeof refreshRuntimeState;
+  applyRefreshedState: (response: CurrentConfigResponse) => void;
+  handleLoadError: (error: unknown) => void;
+  intervalMs?: number;
 };
 
 export function createRuntimeSubscription(deps: RuntimeBootstrapDeps) {
@@ -162,6 +193,30 @@ export function createRuntimeSubscription(deps: RuntimeBootstrapDeps) {
   return () => {
     isCancelled = true;
     cleanup?.();
+  };
+}
+
+export function createRuntimeRefreshLoop(deps: RuntimeRefreshDeps) {
+  let inFlight = false;
+
+  const intervalId = globalThis.setInterval(async () => {
+    if (inFlight) {
+      return;
+    }
+
+    inFlight = true;
+
+    try {
+      deps.applyRefreshedState(await deps.refreshRuntimeState());
+    } catch (error) {
+      deps.handleLoadError(error);
+    } finally {
+      inFlight = false;
+    }
+  }, deps.intervalMs ?? 2000);
+
+  return () => {
+    globalThis.clearInterval(intervalId);
   };
 }
 
@@ -207,6 +262,28 @@ export default function App() {
     }
   });
 
+  const applyRefreshedState = useEffectEvent((response: CurrentConfigResponse) => {
+    const next = deriveRuntimeRefreshState(
+      {
+        config,
+        deviceName,
+        isDeviceConnected,
+        recovery,
+        runtimeState,
+        selectedPadId,
+      },
+      response,
+    );
+
+    startTransition(() => {
+      setDeviceName(next.deviceName);
+      setIsDeviceConnected(next.isDeviceConnected);
+      setRecovery(next.recovery);
+      setRuntimeState(next.runtimeState);
+      setLoadError(null);
+    });
+  });
+
   useEffect(() => {
     return createRuntimeSubscription({
       loadCurrentConfig,
@@ -226,6 +303,22 @@ export default function App() {
       },
     });
   }, [applyLoadedState, handleRuntimeEvent]);
+
+  useEffect(() => {
+    return createRuntimeRefreshLoop({
+      refreshRuntimeState,
+      applyRefreshedState,
+      handleLoadError(error) {
+        startTransition(() => {
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "Unable to refresh Push Deck runtime state.",
+          );
+        });
+      },
+    });
+  }, [applyRefreshedState]);
 
   async function handleRestoreDefaultConfig() {
     try {

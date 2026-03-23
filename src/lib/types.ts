@@ -238,6 +238,10 @@ export type RuntimeEvent =
       pad_id: string;
     }
   | {
+      type: "pad_released";
+      pad_id: string;
+    }
+  | {
       type: "display_frame";
       frame: DisplayFrame;
     };

@@ -2,9 +2,12 @@ use push_deck::app_state::{AppState, DeviceEndpointDescriptor};
 use push_deck::commands::{CommandHost, CurrentConfigResponse, UpdatePadBindingRequest};
 use push_deck::config::schema::{PadAction, PadBinding, PadColorId};
 use push_deck::config::store::{ConfigStore, ConfigStoreBackend};
+use push_deck::device::push3::DecodedPadInputMessage;
 use push_deck::device::{DeviceDiscoveryError, DeviceDiscoverySource, StartupDiscoverySource};
 use push_deck::macos::{ActionBackend, MacosError};
-use push_deck::{refresh_runtime_with_fallback, should_hide_on_close};
+use push_deck::{
+    handle_runtime_pad_input_message, refresh_runtime_with_fallback, should_hide_on_close,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -210,6 +213,42 @@ fn startup_discovery_uses_system_profiler_after_coremidi_returns_no_devices() {
     assert_eq!(runtime_state.app_state, AppState::Ready);
 }
 
+#[test]
+fn runtime_pad_press_dispatches_the_bound_action() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let action_backend = TestActionBackend::default();
+    let host = CommandHost::bootstrap(store, action_backend.clone())
+        .expect("bootstrap should succeed");
+    host.update_pad_binding(UpdatePadBindingRequest {
+        pad_id: "r0c0".to_string(),
+        binding: PadBinding {
+            pad_id: "r0c0".to_string(),
+            label: "Terminal".to_string(),
+            color: PadColorId::Blue,
+            action: PadAction::launch_or_focus_app("com.apple.Terminal", "Terminal"),
+        },
+    })
+    .expect("update should succeed");
+
+    let app = tauri::test::mock_app();
+
+    handle_runtime_pad_input_message(
+        &app.handle(),
+        &host,
+        DecodedPadInputMessage::PadPressed {
+            pad_id: "r0c0".to_string(),
+            velocity: 0x40,
+        },
+    )
+    .expect("pad press should be handled");
+
+    assert_eq!(
+        action_backend.launch_calls(),
+        vec!["com.apple.Terminal".to_string()]
+    );
+}
+
 #[derive(Clone, Default)]
 struct TestConfigStoreBackend {
     state: Arc<Mutex<TestConfigStoreBackendState>>,
@@ -333,12 +372,14 @@ struct TestActionBackend {
 
 struct TestActionBackendState {
     shortcut_capability: bool,
+    launch_calls: Vec<String>,
 }
 
 impl Default for TestActionBackendState {
     fn default() -> Self {
         Self {
             shortcut_capability: true,
+            launch_calls: vec![],
         }
     }
 }
@@ -348,10 +389,19 @@ impl TestActionBackend {
         self.state.lock().expect("lock state").shortcut_capability = is_available;
         self
     }
+
+    fn launch_calls(&self) -> Vec<String> {
+        self.state.lock().expect("lock state").launch_calls.clone()
+    }
 }
 
 impl ActionBackend for TestActionBackend {
-    fn launch_or_focus_bundle_id(&self, _bundle_id: &str) -> Result<(), MacosError> {
+    fn launch_or_focus_bundle_id(&self, bundle_id: &str) -> Result<(), MacosError> {
+        self.state
+            .lock()
+            .expect("lock state")
+            .launch_calls
+            .push(bundle_id.to_string());
         Ok(())
     }
 

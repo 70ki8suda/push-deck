@@ -17,6 +17,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 import {
   RUNTIME_EVENT_NAME,
   loadCurrentConfig,
+  refreshRuntimeState,
   restoreDefaultConfig,
   subscribeRuntimeEvent,
   triggerTestAction,
@@ -58,11 +59,13 @@ describe("frontend api helpers", () => {
 
     mocks.invokeMock
       .mockResolvedValueOnce(readyResponse)
+      .mockResolvedValueOnce(readyResponse)
       .mockResolvedValueOnce(updateResponse)
       .mockResolvedValueOnce(testActionResponse)
       .mockResolvedValueOnce(restoreResponse);
 
     await expect(loadCurrentConfig()).resolves.toBe(readyResponse);
+    await expect(refreshRuntimeState()).resolves.toBe(readyResponse);
     await expect(
         updatePadBinding({
           pad_id: "r0c0",
@@ -82,7 +85,8 @@ describe("frontend api helpers", () => {
     await expect(restoreDefaultConfig()).resolves.toBe(restoreResponse);
 
     expect(mocks.invokeMock).toHaveBeenNthCalledWith(1, "load_current_config");
-    expect(mocks.invokeMock).toHaveBeenNthCalledWith(2, "update_pad_binding", {
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(2, "refresh_runtime_state");
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(3, "update_pad_binding", {
       request: {
         pad_id: "r0c0",
         binding: {
@@ -97,10 +101,10 @@ describe("frontend api helpers", () => {
         },
       },
     });
-    expect(mocks.invokeMock).toHaveBeenNthCalledWith(3, "trigger_test_action", {
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(4, "trigger_test_action", {
       pad_id: "r0c0",
     });
-    expect(mocks.invokeMock).toHaveBeenNthCalledWith(4, "restore_default_config");
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(5, "restore_default_config");
   });
 
   it("subscribes to runtime events and returns a cleanup function", async () => {

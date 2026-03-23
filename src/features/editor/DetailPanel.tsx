@@ -254,7 +254,7 @@ export function DetailPanel({
   useEffect(() => {
     setDraft(createDetailDraft(pad));
     setValidationMessage(null);
-  }, [pad]);
+  }, [pad?.padId]);
 
   const isShortcutAction = draft.actionType === "send_shortcut";
   const isShortcutDisabled =

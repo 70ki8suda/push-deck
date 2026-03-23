@@ -12,7 +12,12 @@ pub mod macos;
 use crate::commands::{CurrentConfigResponse, DefaultCommandHost};
 use crate::config::store::ConfigStoreBackend;
 use crate::device::SystemDiscoverySource;
-use crate::device::{CoreMidiDiscoverySource, DeviceDiscoverySource, StartupDiscoverySource};
+use crate::device::{
+    emit_decoded_pad_input_event,
+    push3::DecodedPadInputMessage,
+    subscribe_push3_user_port_runtime_events, CoreMidiDiscoverySource, DeviceDiscoverySource,
+    Push3InputSubscription, StartupDiscoverySource,
+};
 use crate::events::{emit_runtime_event, RuntimeEvent};
 use crate::macos::ActionBackend;
 use std::error::Error;
@@ -93,6 +98,38 @@ fn emit_runtime_snapshot<R: tauri::Runtime>(
     Ok(())
 }
 
+pub fn store_push3_input_subscription<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    subscription: Push3InputSubscription<R>,
+) -> bool {
+    match subscription {
+        Push3InputSubscription::Active(connection) => {
+            app.manage(std::sync::Mutex::new(Some(connection)));
+            true
+        }
+        Push3InputSubscription::NotConnected => false,
+    }
+}
+
+pub fn handle_runtime_pad_input_message<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    host: &crate::commands::CommandHost<
+        impl crate::config::store::ConfigStoreBackend,
+        impl crate::macos::ActionBackend,
+    >,
+    message: DecodedPadInputMessage,
+) -> Result<(), String> {
+    emit_decoded_pad_input_event(app, message.clone())
+        .map_err(|error| error.to_string())?;
+
+    if let DecodedPadInputMessage::PadPressed { pad_id, .. } = message {
+        host.dispatch_pad_press(&pad_id)
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
 fn bootstrap_runtime<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     host: &DefaultCommandHost,
@@ -100,7 +137,18 @@ fn bootstrap_runtime<R: tauri::Runtime>(
     let startup_discovery =
         StartupDiscoverySource::new(CoreMidiDiscoverySource, SystemDiscoverySource);
     refresh_runtime_with_fallback(host, &startup_discovery, &NullDiscoverySource)?;
-    emit_runtime_snapshot(app, host)
+    emit_runtime_snapshot(app, host)?;
+
+    match subscribe_push3_user_port_runtime_events(app) {
+        Ok(subscription) => {
+            let _ = store_push3_input_subscription(app, subscription);
+        }
+        Err(error) => {
+            eprintln!("push3 input subscription unavailable at startup: {error}");
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -124,6 +172,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_current_config,
+            commands::refresh_runtime_state,
             commands::update_pad_binding,
             commands::trigger_test_action,
             commands::restore_default_config,
