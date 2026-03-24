@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { AppPicker } from "./AppPicker";
+import { ColorPicker } from "./ColorPicker";
+import { padColors } from "./padPalette";
 import { ShortcutEditor } from "./ShortcutEditor";
 import type {
   AppPickerOption,
@@ -10,11 +12,7 @@ import type {
   ShortcutKey,
   ShortcutModifier,
 } from "../../lib/types";
-import {
-  PAD_COLOR_OPTIONS,
-  SHORTCUT_KEY_OPTIONS,
-  SHORTCUT_MODIFIER_ORDER,
-} from "../../lib/types";
+import { SHORTCUT_KEY_OPTIONS, SHORTCUT_MODIFIER_ORDER } from "../../lib/types";
 
 const detailStyles = {
   panel: {
@@ -30,21 +28,17 @@ const detailStyles = {
     display: "grid",
     gap: "0.45rem",
   },
-  eyebrow: {
-    color: "#a8b7aa",
-    fontSize: "0.78rem",
-    letterSpacing: "0.14em",
-    margin: 0,
-    textTransform: "uppercase",
-  },
   title: {
     color: "#f4f0e8",
-    fontSize: "1.5rem",
+    fontSize: "1.35rem",
     margin: 0,
   },
   meta: {
-    color: "#c8d0c8",
+    color: "#92a296",
+    fontSize: "0.82rem",
+    letterSpacing: "0.08em",
     margin: 0,
+    textTransform: "uppercase",
   },
   fieldLabel: {
     color: "#92a296",
@@ -262,6 +256,23 @@ export function DetailPanel({
   const isTestDisabled =
     pad === null || draft.actionType === "unassigned" || isShortcutDisabled;
   const isSaveDisabled = pad === null;
+  const headerTitle =
+    draft.label ||
+    (draft.actionType === "launch_or_focus_app"
+      ? draft.selectedApp?.appName
+      : draft.actionType === "send_shortcut"
+        ? "Shortcut"
+        : pad === null
+          ? "Select a pad"
+          : "Unassigned pad");
+  const headerMeta =
+    draft.actionType === "launch_or_focus_app"
+      ? "Launch app"
+      : draft.actionType === "send_shortcut"
+        ? "Send shortcut"
+        : pad === null
+          ? "Grid editor"
+          : "No action";
 
   function updateDraft(next: Partial<DetailPadDraft>) {
     setDraft((current) => ({
@@ -289,11 +300,8 @@ export function DetailPanel({
   return (
     <aside aria-label="Pad details" style={detailStyles.panel}>
       <header style={detailStyles.section}>
-        <p style={detailStyles.eyebrow}>Editor</p>
-        <h2 style={detailStyles.title}>Pad details</h2>
-        <p style={detailStyles.meta}>
-          {pad ? `${pad.padId} is selected` : "Pick any pad from the grid to inspect it."}
-        </p>
+        <h2 style={detailStyles.title}>{headerTitle}</h2>
+        <p style={detailStyles.meta}>{headerMeta}</p>
       </header>
 
       <section style={detailStyles.section}>
@@ -313,21 +321,13 @@ export function DetailPanel({
 
       <section style={detailStyles.section}>
         <p style={detailStyles.fieldLabel}>Color</p>
-        <select
-          aria-label="Pad color"
+        <ColorPicker
           disabled={pad === null}
-          style={detailStyles.input}
-          value={draft.color}
-          onChange={(event) => {
-            updateDraft({ color: event.currentTarget.value as DetailPadDraft["color"] });
+          selectedColor={draft.color}
+          onSelectColor={(color) => {
+            updateDraft({ color });
           }}
-        >
-          {PAD_COLOR_OPTIONS.map((color) => (
-            <option key={color} value={color}>
-              {color}
-            </option>
-          ))}
-        </select>
+        />
       </section>
 
       <section style={detailStyles.section}>

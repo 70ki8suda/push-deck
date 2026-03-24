@@ -2,12 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AppPickerOption,
   CurrentConfigResponse,
   RestoreDefaultConfigResponse,
   RuntimeEvent,
   TestActionResponse,
+  PreviewPush3PaletteRequest,
   UpdatePadBindingRequest,
   UpdatePadBindingResponse,
+  UpdatePush3ColorCalibrationRequest,
+  UpdatePush3ColorCalibrationResponse,
 } from "./types";
 
 export const RUNTIME_EVENT_NAME = "push-deck:runtime-event";
@@ -38,6 +42,10 @@ export function refreshRuntimeState(): Promise<CurrentConfigResponse> {
   return invokeCommand<CurrentConfigResponse>("refresh_runtime_state");
 }
 
+export function loadRunningApps(): Promise<AppPickerOption[]> {
+  return invokeCommand<AppPickerOption[]>("load_running_apps");
+}
+
 export function updatePadBinding(
   request: UpdatePadBindingRequest,
 ): Promise<UpdatePadBindingResponse> {
@@ -54,6 +62,28 @@ export function triggerTestAction(
     "trigger_test_action",
     { pad_id },
   );
+}
+
+export function updatePush3ColorCalibration(
+  request: UpdatePush3ColorCalibrationRequest,
+): Promise<UpdatePush3ColorCalibrationResponse> {
+  return invokeCommand<
+    UpdatePush3ColorCalibrationResponse,
+    { request: UpdatePush3ColorCalibrationRequest }
+  >("update_push3_color_calibration", { request });
+}
+
+export function previewPush3Palette(
+  request: PreviewPush3PaletteRequest,
+): Promise<void> {
+  return invokeCommand<void, { request: PreviewPush3PaletteRequest }>(
+    "preview_push3_palette",
+    { request },
+  );
+}
+
+export function syncPush3Leds(): Promise<void> {
+  return invokeCommand<void>("sync_push3_leds");
 }
 
 export function restoreDefaultConfig(): Promise<RestoreDefaultConfigResponse> {

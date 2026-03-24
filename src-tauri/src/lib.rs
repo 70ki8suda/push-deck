@@ -40,7 +40,7 @@ pub fn should_hide_on_close(window_label: &str) -> bool {
 }
 
 pub fn refresh_runtime_with_fallback<S, A, P, F>(
-    host: &commands::CommandHost<S, A>,
+    host: &commands::CommandHost<S, A, impl crate::device::Push3LedBackend>,
     primary: &P,
     fallback: &F,
 ) -> Result<(), commands::CommandError>
@@ -116,6 +116,7 @@ pub fn handle_runtime_pad_input_message<R: tauri::Runtime>(
     host: &crate::commands::CommandHost<
         impl crate::config::store::ConfigStoreBackend,
         impl crate::macos::ActionBackend,
+        impl crate::device::Push3LedBackend,
     >,
     message: DecodedPadInputMessage,
 ) -> Result<(), String> {
@@ -173,7 +174,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::load_current_config,
             commands::refresh_runtime_state,
+            commands::load_running_apps,
             commands::update_pad_binding,
+            commands::update_push3_color_calibration,
+            commands::preview_push3_palette,
+            commands::sync_push3_leds,
             commands::trigger_test_action,
             commands::restore_default_config,
         ])

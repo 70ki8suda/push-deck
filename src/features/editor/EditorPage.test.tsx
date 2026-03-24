@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { EditorPage } from "./EditorPage";
+import { EditorPage, swapPadBindings, persistPadBindingSwap } from "./EditorPage";
 import { GridView } from "./GridView";
 import { StatusBar } from "../status/StatusBar";
 import type {
@@ -9,6 +9,11 @@ import type {
   PadBinding,
   RuntimeState,
 } from "../../lib/types";
+import { DEFAULT_PUSH3_COLOR_CALIBRATION } from "../../lib/types";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function createPadBinding(padId: string): PadBinding {
   return {
@@ -39,6 +44,7 @@ function createConfig(): Config {
     schemaVersion: 1,
     settings: {
       activeProfileId: "default",
+      push3ColorCalibration: DEFAULT_PUSH3_COLOR_CALIBRATION,
     },
     profiles: [
       {
@@ -85,6 +91,81 @@ function createRecoveryResponse(): CurrentConfigRecoveryResponse {
 }
 
 describe("Task 11 editor shell", () => {
+  it("swaps two pad bindings within the active profile", () => {
+    const config = createConfig();
+    config.profiles[0].pads[1] = {
+      padId: "r0c1",
+      label: "Terminal",
+      color: "blue",
+      action: {
+        type: "launch_or_focus_app",
+        bundleId: "com.apple.Terminal",
+        appName: "Terminal",
+      },
+    };
+
+    const swapped = swapPadBindings(config, "r0c0", "r0c1");
+
+    expect(swapped.profiles[0].pads[0]).toMatchObject({
+      padId: "r0c0",
+      label: "Terminal",
+      color: "blue",
+    });
+    expect(swapped.profiles[0].pads[1]).toMatchObject({
+      padId: "r0c1",
+      label: "Finder",
+      color: "green",
+    });
+  });
+
+  it("persists a pad swap by updating both pad ids", async () => {
+    const config = createConfig();
+    config.profiles[0].pads[1] = {
+      padId: "r0c1",
+      label: "Terminal",
+      color: "blue",
+      action: {
+        type: "launch_or_focus_app",
+        bundleId: "com.apple.Terminal",
+        appName: "Terminal",
+      },
+    };
+    const updatePadBinding = vi
+      .fn()
+      .mockResolvedValueOnce({
+        config: swapPadBindings(config, "r0c0", "r0c1"),
+        runtime_state: createRuntimeState(),
+      })
+      .mockResolvedValueOnce({
+        config: swapPadBindings(config, "r0c0", "r0c1"),
+        runtime_state: createRuntimeState(),
+      });
+
+    const result = await persistPadBindingSwap({
+      config,
+      sourcePadId: "r0c0",
+      targetPadId: "r0c1",
+      updatePadBinding,
+    });
+
+    expect(updatePadBinding).toHaveBeenCalledTimes(2);
+    expect(updatePadBinding).toHaveBeenNthCalledWith(1, {
+      pad_id: "r0c0",
+      binding: expect.objectContaining({
+        padId: "r0c0",
+        label: "Terminal",
+      }),
+    });
+    expect(updatePadBinding).toHaveBeenNthCalledWith(2, {
+      pad_id: "r0c1",
+      binding: expect.objectContaining({
+        padId: "r0c1",
+        label: "Finder",
+      }),
+    });
+    expect(result.selectedPadId).toBe("r0c1");
+  });
+
   it("renders the full 8x8 grid", () => {
     const html = renderToStaticMarkup(
       <GridView
@@ -166,6 +247,46 @@ describe("Task 11 editor shell", () => {
     expect(html).toContain("Shortcut execution unavailable");
     expect(html).toContain("Test action");
     expect(html).toContain("disabled");
+  });
+
+  it("hides the push3 calibration controls by default", () => {
+    const html = renderToStaticMarkup(
+      <EditorPage
+        config={createConfig()}
+        runtimeState={createRuntimeState()}
+        recovery={null}
+        selectedPadId="r0c0"
+        deviceName="Ableton Push 3"
+        isDeviceConnected
+        onRestoreDefaultConfig={() => {}}
+        onSelectPad={() => {}}
+      />,
+    );
+
+    expect(html).not.toContain("Push 3 palette match");
+    expect(html).not.toContain("Preview 0-63");
+  });
+
+  it("renders the push3 calibration controls when the dev flag is enabled", () => {
+    vi.stubEnv("VITE_SHOW_PUSH3_CALIBRATION", "true");
+
+    const html = renderToStaticMarkup(
+      <EditorPage
+        config={createConfig()}
+        runtimeState={createRuntimeState()}
+        recovery={null}
+        selectedPadId="r0c0"
+        deviceName="Ableton Push 3"
+        isDeviceConnected
+        onRestoreDefaultConfig={() => {}}
+        onSelectPad={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Push 3 palette match");
+    expect(html).toContain("App Red");
+    expect(html).toContain("App Blue");
+    expect(html).toContain("Preview 0-63");
   });
 
   it("replaces normal editor actions with the recovery flow", () => {

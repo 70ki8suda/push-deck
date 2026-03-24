@@ -8,11 +8,13 @@ import type { CSSProperties } from "react";
 import { EditorPage } from "./features/editor/EditorPage";
 import {
   loadCurrentConfig,
+  loadRunningApps,
   refreshRuntimeState,
   restoreDefaultConfig,
   subscribeRuntimeEvent,
 } from "./lib/api";
 import type {
+  AppPickerOption,
   Config,
   ConfigRecoveryState,
   CurrentConfigResponse,
@@ -158,6 +160,13 @@ type RuntimeRefreshDeps = {
   intervalMs?: number;
 };
 
+type RunningAppRefreshDeps = {
+  loadRunningApps: typeof loadRunningApps;
+  applyRunningApps: (options: AppPickerOption[]) => void;
+  handleLoadError?: (error: unknown) => void;
+  intervalMs?: number;
+};
+
 export function createRuntimeSubscription(deps: RuntimeBootstrapDeps) {
   let isCancelled = false;
   let cleanup: (() => void) | undefined;
@@ -220,6 +229,38 @@ export function createRuntimeRefreshLoop(deps: RuntimeRefreshDeps) {
   };
 }
 
+export function createRunningAppRefreshLoop(deps: RunningAppRefreshDeps) {
+  let isCancelled = false;
+  let inFlight = false;
+
+  const refresh = async () => {
+    if (isCancelled || inFlight) {
+      return;
+    }
+
+    inFlight = true;
+
+    try {
+      deps.applyRunningApps(await deps.loadRunningApps());
+    } catch (error) {
+      deps.handleLoadError?.(error);
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  void refresh();
+
+  const intervalId = globalThis.setInterval(() => {
+    void refresh();
+  }, deps.intervalMs ?? 2000);
+
+  return () => {
+    isCancelled = true;
+    globalThis.clearInterval(intervalId);
+  };
+}
+
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null);
   const [recovery, setRecovery] = useState<ConfigRecoveryState | null>(null);
@@ -228,6 +269,7 @@ export default function App() {
   const [selectedPadId, setSelectedPadId] = useState<string | null>(null);
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
+  const [appOptions, setAppOptions] = useState<AppPickerOption[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const applyLoadedState = useEffectEvent((response: CurrentConfigResponse) => {
@@ -285,6 +327,20 @@ export default function App() {
   });
 
   useEffect(() => {
+    return createRunningAppRefreshLoop({
+      loadRunningApps,
+      applyRunningApps(nextOptions) {
+        startTransition(() => {
+          setAppOptions(nextOptions);
+        });
+      },
+      handleLoadError() {
+        // Keep the built-in picker fallback options if the backend lookup fails.
+      },
+    });
+  }, []);
+
+  useEffect(() => {
     return createRuntimeSubscription({
       loadCurrentConfig,
       subscribeRuntimeEvent,
@@ -302,7 +358,7 @@ export default function App() {
         });
       },
     });
-  }, [applyLoadedState, handleRuntimeEvent]);
+  }, []);
 
   useEffect(() => {
     return createRuntimeRefreshLoop({
@@ -318,7 +374,7 @@ export default function App() {
         });
       },
     });
-  }, [applyRefreshedState]);
+  }, []);
 
   async function handleRestoreDefaultConfig() {
     try {
@@ -369,7 +425,7 @@ export default function App() {
         <header style={appStyles.header}>
           <p style={appStyles.eyebrow}>Push Deck</p>
           <div style={appStyles.titleRow}>
-            <h1 style={appStyles.title}>Editor Shell</h1>
+            <h1 style={appStyles.title}>Push Deck</h1>
             <p style={appStyles.subtitle}>
               Shape the Push 3 grid from one runtime-aware workspace, with
               recovery gating preserved when the config store reports a broken
@@ -381,6 +437,7 @@ export default function App() {
         {loadError ? <p style={appStyles.loadError}>{loadError}</p> : null}
 
         <EditorPage
+          appOptions={appOptions}
           config={config}
           runtimeState={runtimeState}
           recovery={recovery}

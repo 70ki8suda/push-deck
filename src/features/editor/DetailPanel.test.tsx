@@ -10,6 +10,7 @@ import type {
   RuntimeState,
   UpdatePadBindingResponse,
 } from "../../lib/types";
+import { DEFAULT_PUSH3_COLOR_CALIBRATION } from "../../lib/types";
 import { GridView } from "./GridView";
 
 function createPadBinding(
@@ -39,6 +40,7 @@ function createConfig(targetPad: PadBinding): Config {
     schemaVersion: 1,
     settings: {
       activeProfileId: "default",
+      push3ColorCalibration: DEFAULT_PUSH3_COLOR_CALIBRATION,
     },
     profiles: [
       {
@@ -130,7 +132,7 @@ describe("Task 12 detail panel editing", () => {
     });
   });
 
-  it("keeps the app picker usable before installed-app candidates are injected", () => {
+  it("keeps the app picker renderable before installed-app candidates are injected", () => {
     const html = renderToStaticMarkup(
       <DetailPanel
         pad={createPadBinding("r0c0", {
@@ -144,9 +146,43 @@ describe("Task 12 detail panel editing", () => {
       />,
     );
 
-    expect(html).toContain("Choose an app");
+    expect(html).toContain("Search apps");
+    expect(html).toContain('aria-label="App picker"');
     expect(html).toContain("Finder");
-    expect(html).toContain("Terminal");
+  });
+
+  it("uses the selected pad content as the detail header", () => {
+    const html = renderToStaticMarkup(
+      <DetailPanel
+        pad={createPadBinding("r0c0", {
+          label: "Finder",
+          action: {
+            type: "launch_or_focus_app",
+            bundleId: "com.apple.finder",
+            appName: "Finder",
+          },
+        })}
+        shortcutCapability="available"
+      />,
+    );
+
+    expect(html).toContain("Finder");
+    expect(html).toContain("Launch app");
+    expect(html).not.toContain(">Pad details<");
+    expect(html).not.toContain("is selected");
+  });
+
+  it("renders the pad color picker as a searchable combobox", () => {
+    const html = renderToStaticMarkup(
+      <DetailPanel
+        pad={createPadBinding("r0c0")}
+        shortcutCapability="available"
+      />,
+    );
+
+    expect(html).toContain('aria-label="Pad color"');
+    expect(html).toContain("Search colors");
+    expect(html).not.toContain('<option value="chartreuse">');
   });
 
   it("normalizes shortcut modifiers before save", () => {
@@ -239,7 +275,7 @@ describe("Task 12 detail panel editing", () => {
     expect(html).toContain("Terminal");
     expect(html).toContain('data-pad-id="r0c0"');
     expect(html).toContain('data-selected="true"');
-    expect(html).toContain("#537db9");
+    expect(html).toContain("#6d8dff");
   });
 
   it("creates a draft from the selected pad for editing controls", () => {

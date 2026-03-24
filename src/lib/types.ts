@@ -7,30 +7,41 @@ export type AppState =
 
 export type ShortcutCapabilityState = "available" | "unavailable";
 
-export type PadColorId =
-  | "off"
-  | "white"
-  | "red"
-  | "orange"
-  | "yellow"
-  | "green"
-  | "cyan"
-  | "blue"
-  | "purple"
-  | "pink";
+export const CALIBRATABLE_PUSH3_COLORS = [
+  "white",
+  "peach",
+  "coral",
+  "red",
+  "orange",
+  "amber",
+  "yellow",
+  "lime",
+  "chartreuse",
+  "green",
+  "mint",
+  "teal",
+  "cyan",
+  "sky",
+  "blue",
+  "indigo",
+  "purple",
+  "magenta",
+  "rose",
+  "pink",
+ ] as const;
+
+export type Push3CalibrationColor =
+  (typeof CALIBRATABLE_PUSH3_COLORS)[number];
+
+export type PadColorId = "off" | Push3CalibrationColor;
 
 export const PAD_COLOR_OPTIONS = [
   "off",
-  "white",
-  "red",
-  "orange",
-  "yellow",
-  "green",
-  "cyan",
-  "blue",
-  "purple",
-  "pink",
+  ...CALIBRATABLE_PUSH3_COLORS,
 ] as const satisfies readonly PadColorId[];
+
+export const EDITABLE_PUSH3_CALIBRATION_COLORS =
+  CALIBRATABLE_PUSH3_COLORS satisfies readonly Push3CalibrationColor[];
 
 export const SHORTCUT_MODIFIER_ORDER = [
   "Cmd",
@@ -105,7 +116,33 @@ export type ShortcutKey = (typeof SHORTCUT_KEY_OPTIONS)[number];
 
 export interface AppSettings {
   activeProfileId: string;
+  push3ColorCalibration: Push3ColorCalibration;
 }
+
+export type Push3ColorCalibration = Record<Push3CalibrationColor, number>;
+
+export const DEFAULT_PUSH3_COLOR_CALIBRATION: Push3ColorCalibration = {
+  white: 3,
+  peach: 8,
+  coral: 4,
+  red: 5,
+  orange: 9,
+  amber: 12,
+  yellow: 13,
+  lime: 16,
+  chartreuse: 17,
+  green: 21,
+  mint: 29,
+  teal: 33,
+  cyan: 37,
+  sky: 41,
+  blue: 45,
+  indigo: 48,
+  purple: 49,
+  magenta: 52,
+  rose: 56,
+  pink: 57,
+};
 
 export interface PadActionUnassigned {
   type: "unassigned";
@@ -212,6 +249,20 @@ export interface UpdatePadBindingRequest {
 export interface UpdatePadBindingResponse {
   config: Config;
   runtime_state: RuntimeState;
+}
+
+export interface UpdatePush3ColorCalibrationRequest {
+  logical_color: PadColorId;
+  output_value: number;
+}
+
+export interface UpdatePush3ColorCalibrationResponse {
+  config: Config;
+  runtime_state: RuntimeState;
+}
+
+export interface PreviewPush3PaletteRequest {
+  page: number;
 }
 
 export interface TestActionResponse {

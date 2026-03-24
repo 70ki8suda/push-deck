@@ -1,6 +1,6 @@
 use push_deck::config::schema::{
-    AppSettings, Config, LayoutProfile, PadAction, PadBinding, PadColorId, ShortcutKey,
-    ShortcutModifier, ShortcutSpec,
+    AppSettings, Config, LayoutProfile, PadAction, PadBinding, PadColorId,
+    Push3ColorCalibration, ShortcutKey, ShortcutModifier, ShortcutSpec,
 };
 use serde_json::json;
 
@@ -10,6 +10,7 @@ fn default_config_generates_one_default_profile_with_64_unassigned_pads() {
 
     assert_eq!(config.schema_version, 1);
     assert_eq!(config.settings.active_profile_id, "default");
+    assert_eq!(config.settings.push3_color_calibration, Push3ColorCalibration::default());
     assert_eq!(config.profiles.len(), 1);
 
     let profile = &config.profiles[0];
@@ -48,6 +49,7 @@ fn normalize_profile_fills_missing_pads_to_64_entries_with_unassigned_actions() 
     let normalized = Config::from_parts(
         AppSettings {
             active_profile_id: "default".to_string(),
+            ..AppSettings::default()
         },
         vec![profile],
     )
@@ -79,6 +81,7 @@ fn unassigned_pads_are_preserved_when_normalizing() {
     let normalized = Config::from_parts(
         AppSettings {
             active_profile_id: "default".to_string(),
+            ..AppSettings::default()
         },
         vec![profile],
     )
@@ -107,6 +110,7 @@ fn invalid_pad_ids_are_rejected() {
     let error = Config::from_parts(
         AppSettings {
             active_profile_id: "default".to_string(),
+            ..AppSettings::default()
         },
         vec![profile],
     )
@@ -183,10 +187,50 @@ fn invalid_action_payload_is_rejected_during_config_normalization() {
     let error = Config::from_parts(
         AppSettings {
             active_profile_id: "default".to_string(),
+            ..AppSettings::default()
         },
         vec![profile],
     )
     .expect_err("invalid shortcut payload should be rejected");
 
     assert!(error.to_string().contains("shortcut"));
+}
+
+#[test]
+fn app_settings_deserialize_with_default_push3_color_calibration_when_missing() {
+    let settings = serde_json::from_value::<AppSettings>(json!({
+        "activeProfileId": "default"
+    }))
+    .expect("settings should deserialize");
+
+    assert_eq!(settings.push3_color_calibration, Push3ColorCalibration::default());
+}
+
+#[test]
+fn push3_color_calibration_backfills_new_color_slots_when_loading_older_configs() {
+    let settings = serde_json::from_value::<AppSettings>(json!({
+        "activeProfileId": "default",
+        "push3ColorCalibration": {
+            "white": 3,
+            "red": 5,
+            "orange": 9,
+            "yellow": 13,
+            "green": 21,
+            "cyan": 37,
+            "blue": 45,
+            "purple": 49,
+            "pink": 57
+        }
+    }))
+    .expect("settings should deserialize");
+
+    assert_eq!(settings.push3_color_calibration.red, 5);
+    assert_eq!(
+        settings.push3_color_calibration.chartreuse,
+        Push3ColorCalibration::default().chartreuse
+    );
+    assert_eq!(
+        settings.push3_color_calibration.indigo,
+        Push3ColorCalibration::default().indigo
+    );
 }

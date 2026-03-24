@@ -2,12 +2,13 @@ use push_deck::app_state::AppState;
 use push_deck::commands::{
     CommandError, CommandHost, CurrentConfigResponse, RestoreDefaultConfigResponse,
     TestActionResponse, UpdatePadBindingRequest, UpdatePadBindingResponse,
+    UpdatePush3ColorCalibrationRequest, UpdatePush3ColorCalibrationResponse,
 };
 use push_deck::config::schema::{
     Config, PadAction, PadBinding, PadColorId, DEFAULT_PROFILE_ID,
 };
 use push_deck::config::store::{ConfigStore, ConfigStoreBackend};
-use push_deck::macos::{ActionBackend, MacosError};
+use push_deck::macos::{ActionBackend, MacosError, RunningAppOption};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -169,6 +170,72 @@ fn restore_default_config_is_rejected_when_not_in_recovery_mode() {
     assert_eq!(error, CommandError::NotInRecoveryMode);
 }
 
+#[test]
+fn list_running_apps_returns_backend_options_sorted_by_name() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let action_backend = TestActionBackend::default().with_running_apps(vec![
+        RunningAppOption {
+            bundle_id: "com.apple.Terminal".to_string(),
+            app_name: "Terminal".to_string(),
+        },
+        RunningAppOption {
+            bundle_id: "com.apple.finder".to_string(),
+            app_name: "Finder".to_string(),
+        },
+    ]);
+    let host = CommandHost::bootstrap(store, action_backend).expect("bootstrap should succeed");
+
+    let apps = host.list_running_apps().expect("running apps should load");
+
+    assert_eq!(
+        apps,
+        vec![
+            RunningAppOption {
+                bundle_id: "com.apple.finder".to_string(),
+                app_name: "Finder".to_string(),
+            },
+            RunningAppOption {
+                bundle_id: "com.apple.Terminal".to_string(),
+                app_name: "Terminal".to_string(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn update_push3_color_calibration_persists_the_selected_mapping_and_returns_the_updated_config() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend.clone());
+    let host = CommandHost::bootstrap(store, TestActionBackend::default())
+        .expect("bootstrap should load the default config");
+
+    let response = host
+        .update_push3_color_calibration(UpdatePush3ColorCalibrationRequest {
+            logical_color: PadColorId::Red,
+            output_value: 9,
+        })
+        .expect("calibration update should succeed");
+
+    let UpdatePush3ColorCalibrationResponse {
+        config,
+        runtime_state,
+    } = response;
+
+    assert_eq!(runtime_state.app_state, AppState::WaitingForDevice);
+    assert_eq!(
+        config.settings.push3_color_calibration.red,
+        9
+    );
+    assert_eq!(
+        backend.file_contents(&path("config.json")),
+        Some(
+            serde_json::to_string_pretty(&config)
+                .expect("updated config should serialize")
+        )
+    );
+}
+
 #[derive(Clone, Default)]
 struct TestConfigStoreBackend {
     state: Arc<Mutex<TestConfigStoreBackendState>>,
@@ -251,6 +318,7 @@ struct TestActionBackend {
 struct TestActionBackendState {
     launch_result: Option<Result<(), MacosError>>,
     launch_calls: Vec<String>,
+    running_apps: Vec<RunningAppOption>,
 }
 
 impl TestActionBackend {
@@ -262,6 +330,11 @@ impl TestActionBackend {
     fn launch_calls(&self) -> Vec<String> {
         self.state.lock().expect("lock state").launch_calls.clone()
     }
+
+    fn with_running_apps(self, running_apps: Vec<RunningAppOption>) -> Self {
+        self.state.lock().expect("lock state").running_apps = running_apps;
+        self
+    }
 }
 
 impl ActionBackend for TestActionBackend {
@@ -269,6 +342,10 @@ impl ActionBackend for TestActionBackend {
         let mut state = self.state.lock().expect("lock state");
         state.launch_calls.push(bundle_id.to_string());
         state.launch_result.clone().unwrap_or(Ok(()))
+    }
+
+    fn running_apps(&self) -> Result<Vec<RunningAppOption>, MacosError> {
+        Ok(self.state.lock().expect("lock state").running_apps.clone())
     }
 }
 

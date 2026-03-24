@@ -36,11 +36,13 @@ For development:
 2. Start the desktop app with `make dev`.
 3. Run checks with `make lint` and `make test`.
 4. Build release artifacts with `make build`.
+5. Build and install the macOS app bundle to `~/Applications` with `make bundle`.
 
 Useful narrower commands:
 
 - `npm run dev` starts the Vite frontend only.
 - `npm run dev:app` starts the Tauri app.
+- `VITE_SHOW_PUSH3_CALIBRATION=true make dev` temporarily re-enables the Push 3 calibration UI during development.
 - `npm run build` builds the frontend bundle.
 - `npm run lint` type-checks the frontend.
 - `npm test` runs the frontend tests.

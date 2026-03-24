@@ -2,19 +2,24 @@ use crate::actions::{dispatch_pad_action, send_shortcut::shortcut_capability_sta
 use crate::app_state::{
     recorded_shortcut_capability, AppState, ConfigRecoveryState, RuntimeState,
 };
-use crate::config::schema::{Config, PadAction, PadBinding, DEFAULT_PROFILE_ID};
+use crate::config::schema::{Config, PadAction, PadBinding, PadColorId, DEFAULT_PROFILE_ID};
 use crate::config::store::{ConfigLoadOutcome, ConfigStore, ConfigStoreBackend, ConfigStoreError};
 use crate::device::{
     discover_push_device, CoreMidiDiscoverySource, DeviceDiscoverySource, StartupDiscoverySource,
     SystemDiscoverySource,
 };
-use crate::macos::{ActionBackend, SystemMacosBackend};
+use crate::device::{NoopPush3LedBackend, Push3LedBackend, SystemPush3LedBackend};
+use crate::macos::{ActionBackend, RunningAppOption, SystemMacosBackend};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Mutex;
 
-pub type DefaultCommandHost = CommandHost<crate::config::store::OsConfigStoreBackend, SystemMacosBackend>;
+pub type DefaultCommandHost = CommandHost<
+    crate::config::store::OsConfigStoreBackend,
+    SystemMacosBackend,
+    SystemPush3LedBackend,
+>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -43,6 +48,23 @@ pub struct UpdatePadBindingRequest {
 pub struct UpdatePadBindingResponse {
     pub config: Config,
     pub runtime_state: RuntimeState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatePush3ColorCalibrationRequest {
+    pub logical_color: PadColorId,
+    pub output_value: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatePush3ColorCalibrationResponse {
+    pub config: Config,
+    pub runtime_state: RuntimeState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviewPush3PaletteRequest {
+    pub page: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,30 +194,59 @@ impl CommandState {
     }
 }
 
-pub struct CommandHost<S = crate::config::store::OsConfigStoreBackend, A = SystemMacosBackend>
+pub struct CommandHost<
+    S = crate::config::store::OsConfigStoreBackend,
+    A = SystemMacosBackend,
+    L = NoopPush3LedBackend,
+>
 where
     S: ConfigStoreBackend,
     A: ActionBackend,
+    L: Push3LedBackend,
 {
     store: ConfigStore<S>,
     action_backend: A,
+    led_backend: L,
     state: Mutex<CommandState>,
 }
 
-impl CommandHost<crate::config::store::OsConfigStoreBackend, SystemMacosBackend> {
+impl CommandHost<
+    crate::config::store::OsConfigStoreBackend,
+    SystemMacosBackend,
+    SystemPush3LedBackend,
+> {
     pub fn bootstrap_default() -> Result<Self, CommandError> {
         let path = ConfigStore::default_path().map_err(CommandError::from)?;
         let store = ConfigStore::new(path);
-        Self::bootstrap(store, SystemMacosBackend::default())
+        Self::bootstrap_with_led_backend(
+            store,
+            SystemMacosBackend::default(),
+            SystemPush3LedBackend::default(),
+        )
     }
 }
 
-impl<S, A> CommandHost<S, A>
+impl<S, A> CommandHost<S, A, NoopPush3LedBackend>
 where
     S: ConfigStoreBackend,
     A: ActionBackend,
 {
     pub fn bootstrap(store: ConfigStore<S>, action_backend: A) -> Result<Self, CommandError> {
+        Self::bootstrap_with_led_backend(store, action_backend, NoopPush3LedBackend)
+    }
+}
+
+impl<S, A, L> CommandHost<S, A, L>
+where
+    S: ConfigStoreBackend,
+    A: ActionBackend,
+    L: Push3LedBackend,
+{
+    pub fn bootstrap_with_led_backend(
+        store: ConfigStore<S>,
+        action_backend: A,
+        led_backend: L,
+    ) -> Result<Self, CommandError> {
         let state = match store.load().map_err(CommandError::from)? {
             ConfigLoadOutcome::Ready(result) => {
                 let mut state = CommandState::new_ready();
@@ -208,6 +259,7 @@ where
         Ok(Self {
             store,
             action_backend,
+            led_backend,
             state: Mutex::new(state),
         })
     }
@@ -251,6 +303,7 @@ where
             .endpoint()
             .map(|endpoint| endpoint.display_name.clone());
         let device_connected = device_name.is_some();
+        let config = state.config.clone();
 
         state.apply_runtime_environment(
             discovery.app_state,
@@ -259,7 +312,20 @@ where
             device_connected,
         );
 
-        Ok(state.runtime_snapshot())
+        let runtime_state = state.runtime_snapshot();
+        drop(state);
+
+        if device_connected {
+            if let Some(config) = config.as_ref() {
+                self.try_sync_leds(config);
+            } else {
+                self.led_backend.disconnect();
+            }
+        } else {
+            self.led_backend.disconnect();
+        }
+
+        Ok(runtime_state)
     }
 
     pub fn update_pad_binding(
@@ -281,9 +347,12 @@ where
             Ok(()) => {
                 state.clear_save_failed();
                 state.set_config(updated_config.clone());
+                let runtime_state = state.runtime_snapshot();
+                drop(state);
+                self.try_sync_leds(&updated_config);
                 Ok(UpdatePadBindingResponse {
                     config: updated_config,
-                    runtime_state: state.runtime_snapshot(),
+                    runtime_state,
                 })
             }
             Err(error) => {
@@ -346,6 +415,61 @@ where
         Ok(())
     }
 
+    pub fn list_running_apps(&self) -> Result<Vec<RunningAppOption>, CommandError> {
+        let mut apps = self
+            .action_backend
+            .running_apps()
+            .map_err(|error| CommandError::Action(error.to_string()))?;
+
+        apps.sort_by(|left, right| {
+            left.app_name
+                .to_ascii_lowercase()
+                .cmp(&right.app_name.to_ascii_lowercase())
+                .then_with(|| left.bundle_id.cmp(&right.bundle_id))
+        });
+
+        apps.dedup_by(|left, right| left.bundle_id == right.bundle_id);
+
+        Ok(apps)
+    }
+
+    pub fn update_push3_color_calibration(
+        &self,
+        request: UpdatePush3ColorCalibrationRequest,
+    ) -> Result<UpdatePush3ColorCalibrationResponse, CommandError> {
+        let mut state = self.state.lock().expect("command state lock poisoned");
+        if state.recovery.is_some() {
+            return Err(CommandError::RecoveryRequired);
+        }
+
+        let mut updated_config = state
+            .config
+            .clone()
+            .ok_or(CommandError::RecoveryRequired)?;
+        updated_config
+            .settings
+            .push3_color_calibration
+            .update(request.logical_color, request.output_value);
+
+        match self.store.save(&updated_config) {
+            Ok(()) => {
+                state.clear_save_failed();
+                state.set_config(updated_config.clone());
+                let runtime_state = state.runtime_snapshot();
+                drop(state);
+                self.try_sync_leds(&updated_config);
+                Ok(UpdatePush3ColorCalibrationResponse {
+                    config: updated_config,
+                    runtime_state,
+                })
+            }
+            Err(error) => {
+                state.enter_save_failed();
+                Err(error.into())
+            }
+        }
+    }
+
     pub fn restore_default_config(&self) -> Result<RestoreDefaultConfigResponse, CommandError> {
         let mut state = self.state.lock().expect("command state lock poisoned");
         let recovery = state
@@ -361,9 +485,12 @@ where
                 state.runtime_state.app_state = AppState::WaitingForDevice;
                 state.runtime_state.capabilities.shortcut = recorded_shortcut_capability();
                 state.recovery = None;
+                let runtime_state = state.runtime_snapshot();
+                drop(state);
+                self.try_sync_leds(&default_config);
                 Ok(RestoreDefaultConfigResponse {
                     config: default_config,
-                    runtime_state: state.runtime_snapshot(),
+                    runtime_state,
                 })
             }
             Err(error) => {
@@ -372,6 +499,31 @@ where
                 Err(error.into())
             }
         }
+    }
+
+    fn try_sync_leds(&self, config: &Config) {
+        if let Err(error) = self.led_backend.sync_config(config) {
+            eprintln!("push3 led sync failed: {error}");
+        }
+    }
+
+    pub fn preview_push3_palette(&self, page: u8) -> Result<(), CommandError> {
+        self.led_backend
+            .preview_palette(page)
+            .map_err(|error| CommandError::Action(error.to_string()))
+    }
+
+    pub fn sync_push3_leds(&self) -> Result<(), CommandError> {
+        let config = {
+            let state = self.state.lock().expect("command state lock poisoned");
+            state.config.clone()
+        };
+
+        if let Some(config) = config.as_ref() {
+            self.try_sync_leds(config);
+        }
+
+        Ok(())
     }
 }
 
@@ -450,6 +602,13 @@ pub fn refresh_runtime_state(
 }
 
 #[tauri::command]
+pub fn load_running_apps(
+    state: tauri::State<'_, DefaultCommandHost>,
+) -> Result<Vec<RunningAppOption>, String> {
+    state.list_running_apps().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn update_pad_binding(
     state: tauri::State<'_, DefaultCommandHost>,
     request: UpdatePadBindingRequest,
@@ -476,4 +635,29 @@ pub fn restore_default_config(
     state
         .restore_default_config()
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn update_push3_color_calibration(
+    state: tauri::State<'_, DefaultCommandHost>,
+    request: UpdatePush3ColorCalibrationRequest,
+) -> Result<UpdatePush3ColorCalibrationResponse, String> {
+    state
+        .update_push3_color_calibration(request)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn preview_push3_palette(
+    state: tauri::State<'_, DefaultCommandHost>,
+    request: PreviewPush3PaletteRequest,
+) -> Result<(), String> {
+    state
+        .preview_push3_palette(request.page)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn sync_push3_leds(state: tauri::State<'_, DefaultCommandHost>) -> Result<(), String> {
+    state.sync_push3_leds().map_err(|error| error.to_string())
 }

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RuntimeEvent } from "./types";
+import {
+  DEFAULT_PUSH3_COLOR_CALIBRATION,
+  type RuntimeEvent,
+} from "./types";
 
 const mocks = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -16,11 +19,15 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 import {
   RUNTIME_EVENT_NAME,
+  loadRunningApps,
   loadCurrentConfig,
+  previewPush3Palette,
   refreshRuntimeState,
   restoreDefaultConfig,
+  syncPush3Leds,
   subscribeRuntimeEvent,
   triggerTestAction,
+  updatePush3ColorCalibration,
   updatePadBinding,
 } from "./api";
 
@@ -36,6 +43,7 @@ describe("frontend api helpers", () => {
         schemaVersion: 1,
         settings: {
           activeProfileId: "default",
+          push3ColorCalibration: DEFAULT_PUSH3_COLOR_CALIBRATION,
         },
         profiles: [],
       },
@@ -52,20 +60,32 @@ describe("frontend api helpers", () => {
       config: readyResponse.config,
       runtime_state: readyResponse.runtime_state,
     } as const;
+    const runningAppsResponse = [
+      {
+        bundleId: "com.apple.Terminal",
+        appName: "Terminal",
+      },
+    ] as const;
     const testActionResponse = {
       runtime_state: readyResponse.runtime_state,
     } as const;
+    const calibrationResponse = updateResponse;
     const restoreResponse = updateResponse;
 
     mocks.invokeMock
       .mockResolvedValueOnce(readyResponse)
       .mockResolvedValueOnce(readyResponse)
+      .mockResolvedValueOnce(runningAppsResponse)
       .mockResolvedValueOnce(updateResponse)
       .mockResolvedValueOnce(testActionResponse)
+      .mockResolvedValueOnce(calibrationResponse)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(restoreResponse);
 
     await expect(loadCurrentConfig()).resolves.toBe(readyResponse);
     await expect(refreshRuntimeState()).resolves.toBe(readyResponse);
+    await expect(loadRunningApps()).resolves.toBe(runningAppsResponse);
     await expect(
         updatePadBinding({
           pad_id: "r0c0",
@@ -82,11 +102,20 @@ describe("frontend api helpers", () => {
       }),
     ).resolves.toBe(updateResponse);
     await expect(triggerTestAction("r0c0")).resolves.toBe(testActionResponse);
+    await expect(
+      updatePush3ColorCalibration({
+        logical_color: "red",
+        output_value: 9,
+      }),
+    ).resolves.toBe(calibrationResponse);
+    await expect(previewPush3Palette({ page: 1 })).resolves.toBeUndefined();
+    await expect(syncPush3Leds()).resolves.toBeUndefined();
     await expect(restoreDefaultConfig()).resolves.toBe(restoreResponse);
 
     expect(mocks.invokeMock).toHaveBeenNthCalledWith(1, "load_current_config");
     expect(mocks.invokeMock).toHaveBeenNthCalledWith(2, "refresh_runtime_state");
-    expect(mocks.invokeMock).toHaveBeenNthCalledWith(3, "update_pad_binding", {
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(3, "load_running_apps");
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(4, "update_pad_binding", {
       request: {
         pad_id: "r0c0",
         binding: {
@@ -101,10 +130,26 @@ describe("frontend api helpers", () => {
         },
       },
     });
-    expect(mocks.invokeMock).toHaveBeenNthCalledWith(4, "trigger_test_action", {
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(5, "trigger_test_action", {
       pad_id: "r0c0",
     });
-    expect(mocks.invokeMock).toHaveBeenNthCalledWith(5, "restore_default_config");
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(
+      6,
+      "update_push3_color_calibration",
+      {
+        request: {
+          logical_color: "red",
+          output_value: 9,
+        },
+      },
+    );
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(7, "preview_push3_palette", {
+      request: {
+        page: 1,
+      },
+    });
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(8, "sync_push3_leds");
+    expect(mocks.invokeMock).toHaveBeenNthCalledWith(9, "restore_default_config");
   });
 
   it("subscribes to runtime events and returns a cleanup function", async () => {

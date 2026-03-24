@@ -1,10 +1,14 @@
 use push_deck::app_state::{AppState, DeviceEndpointDescriptor};
-use push_deck::commands::{CommandHost, CurrentConfigResponse, UpdatePadBindingRequest};
-use push_deck::config::schema::{PadAction, PadBinding, PadColorId};
+use push_deck::commands::{
+    CommandHost, CurrentConfigResponse, UpdatePadBindingRequest,
+    UpdatePush3ColorCalibrationRequest,
+};
+use push_deck::config::schema::{Config, PadAction, PadBinding, PadColorId};
 use push_deck::config::store::{ConfigStore, ConfigStoreBackend};
 use push_deck::device::push3::DecodedPadInputMessage;
 use push_deck::device::{DeviceDiscoveryError, DeviceDiscoverySource, StartupDiscoverySource};
 use push_deck::macos::{ActionBackend, MacosError};
+use push_deck::device::output::{Push3LedBackend, Push3LedError};
 use push_deck::{
     handle_runtime_pad_input_message, refresh_runtime_with_fallback, should_hide_on_close,
 };
@@ -249,6 +253,147 @@ fn runtime_pad_press_dispatches_the_bound_action() {
     );
 }
 
+#[test]
+fn update_pad_binding_syncs_the_saved_config_to_the_led_backend() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+
+    host.update_pad_binding(UpdatePadBindingRequest {
+        pad_id: "r0c0".to_string(),
+        binding: PadBinding {
+            pad_id: "r0c0".to_string(),
+            label: "Terminal".to_string(),
+            color: PadColorId::Green,
+            action: PadAction::launch_or_focus_app("com.apple.Terminal", "Terminal"),
+        },
+    })
+    .expect("update should succeed");
+
+    assert_eq!(led_backend.synced_configs().len(), 1);
+    assert_eq!(
+        led_backend.synced_configs()[0]
+            .profile("default")
+            .expect("default profile")
+            .pads[0]
+            .color,
+        PadColorId::Green
+    );
+}
+
+#[test]
+fn refresh_runtime_syncs_leds_when_a_push_device_is_connected() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+
+    host.refresh_runtime(&TestDiscoverySource::connected("Ableton Push 3 User Port"))
+        .expect("runtime refresh should succeed");
+
+    assert_eq!(led_backend.synced_configs().len(), 1);
+    assert_eq!(led_backend.disconnect_calls(), 0);
+}
+
+#[test]
+fn refresh_runtime_drops_led_connection_when_the_push_disconnects() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+
+    host.refresh_runtime(&TestDiscoverySource::connected("Ableton Push 3 User Port"))
+        .expect("runtime refresh should succeed");
+    host.refresh_runtime(&TestDiscoverySource::waiting())
+        .expect("runtime refresh should succeed");
+
+    assert_eq!(led_backend.synced_configs().len(), 1);
+    assert_eq!(led_backend.disconnect_calls(), 1);
+}
+
+#[test]
+fn update_push3_color_calibration_syncs_the_saved_config_to_the_led_backend() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+
+    host.update_push3_color_calibration(UpdatePush3ColorCalibrationRequest {
+        logical_color: PadColorId::Red,
+        output_value: 9,
+    })
+    .expect("calibration update should succeed");
+
+    assert_eq!(led_backend.synced_configs().len(), 1);
+    assert_eq!(
+        led_backend.synced_configs()[0]
+            .settings
+            .push3_color_calibration
+            .red,
+        9
+    );
+}
+
+#[test]
+fn preview_push3_palette_forwards_the_selected_page_to_the_led_backend() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+
+    host.preview_push3_palette(1)
+        .expect("preview should succeed");
+
+    assert_eq!(led_backend.preview_pages(), vec![1]);
+}
+
+#[test]
+fn sync_push3_leds_resends_the_current_layout_to_the_led_backend() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+
+    host.sync_push3_leds().expect("sync should succeed");
+
+    assert_eq!(led_backend.synced_configs().len(), 1);
+    assert_eq!(
+        led_backend.synced_configs()[0],
+        Config::default()
+    );
+}
+
 #[derive(Clone, Default)]
 struct TestConfigStoreBackend {
     state: Arc<Mutex<TestConfigStoreBackendState>>,
@@ -407,6 +552,56 @@ impl ActionBackend for TestActionBackend {
 
     fn shortcut_accessibility_available(&self) -> Result<bool, MacosError> {
         Ok(self.state.lock().expect("lock state").shortcut_capability)
+    }
+}
+
+#[derive(Clone, Default)]
+struct TestLedBackend {
+    state: Arc<Mutex<TestLedBackendState>>,
+}
+
+#[derive(Default)]
+struct TestLedBackendState {
+    synced_configs: Vec<Config>,
+    preview_pages: Vec<u8>,
+    disconnect_calls: usize,
+}
+
+impl TestLedBackend {
+    fn synced_configs(&self) -> Vec<Config> {
+        self.state.lock().expect("lock state").synced_configs.clone()
+    }
+
+    fn disconnect_calls(&self) -> usize {
+        self.state.lock().expect("lock state").disconnect_calls
+    }
+
+    fn preview_pages(&self) -> Vec<u8> {
+        self.state.lock().expect("lock state").preview_pages.clone()
+    }
+}
+
+impl Push3LedBackend for TestLedBackend {
+    fn sync_config(&self, config: &Config) -> Result<(), Push3LedError> {
+        self.state
+            .lock()
+            .expect("lock state")
+            .synced_configs
+            .push(config.clone());
+        Ok(())
+    }
+
+    fn preview_palette(&self, page: u8) -> Result<(), Push3LedError> {
+        self.state
+            .lock()
+            .expect("lock state")
+            .preview_pages
+            .push(page);
+        Ok(())
+    }
+
+    fn disconnect(&self) {
+        self.state.lock().expect("lock state").disconnect_calls += 1;
     }
 }
 

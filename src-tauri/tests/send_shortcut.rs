@@ -17,7 +17,7 @@ mod send_shortcut;
 mod actions;
 
 use actions::{dispatch_pad_action, ActionExecutionError, SendShortcutError};
-use macos::{ActionBackend, MacosError};
+use macos::{ActionBackend, MacosError, RunningAppOption};
 use push_deck::app_state::{
     record_shortcut_capability, recorded_shortcut_capability, ShortcutCapabilityState,
 };
@@ -26,9 +26,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 #[test]
 fn dispatches_shortcut_when_permission_and_frontmost_target_are_present() {
+    let _guard = capability_test_guard();
     let backend = FakeBackend::new()
         .with_accessibility_permission(true)
-        .with_frontmost_target(Some("Ableton Live".to_string()))
+        .with_frontmost_target(Some(RunningAppOption {
+            bundle_id: "com.ableton.live".to_string(),
+            app_name: "Ableton Live".to_string(),
+        }))
         .with_send_result(Ok(()));
     let action = PadAction::SendShortcut {
         key: ShortcutKey::K,
@@ -58,9 +62,13 @@ fn dispatches_shortcut_when_permission_and_frontmost_target_are_present() {
 
 #[test]
 fn returns_error_when_accessibility_permission_is_missing() {
+    let _guard = capability_test_guard();
     let backend = FakeBackend::new()
         .with_accessibility_permission(false)
-        .with_frontmost_target(Some("Ableton Live".to_string()));
+        .with_frontmost_target(Some(RunningAppOption {
+            bundle_id: "com.ableton.live".to_string(),
+            app_name: "Ableton Live".to_string(),
+        }));
     let action = PadAction::SendShortcut {
         key: ShortcutKey::K,
         modifiers: vec![ShortcutModifier::Cmd],
@@ -82,6 +90,7 @@ fn returns_error_when_accessibility_permission_is_missing() {
 
 #[test]
 fn returns_error_when_no_frontmost_target_exists() {
+    let _guard = capability_test_guard();
     let backend = FakeBackend::new()
         .with_accessibility_permission(true)
         .with_frontmost_target(None);
@@ -104,9 +113,13 @@ fn returns_error_when_no_frontmost_target_exists() {
 
 #[test]
 fn rejects_invalid_shortcut_payload_before_backend_execution() {
+    let _guard = capability_test_guard();
     let backend = FakeBackend::new()
         .with_accessibility_permission(true)
-        .with_frontmost_target(Some("Ableton Live".to_string()));
+        .with_frontmost_target(Some(RunningAppOption {
+            bundle_id: "com.ableton.live".to_string(),
+            app_name: "Ableton Live".to_string(),
+        }));
     let action = PadAction::SendShortcut {
         key: ShortcutKey::K,
         modifiers: vec![ShortcutModifier::Cmd, ShortcutModifier::Cmd],
@@ -172,7 +185,7 @@ struct FakeBackend {
 #[derive(Default)]
 struct FakeBackendState {
     accessibility_permission: Option<bool>,
-    frontmost_target: Option<Option<String>>,
+    frontmost_target: Option<Option<RunningAppOption>>,
     send_result: Option<Result<(), MacosError>>,
     accessibility_queries: Vec<bool>,
     frontmost_target_queries: Vec<bool>,
@@ -192,7 +205,7 @@ impl FakeBackend {
         self
     }
 
-    fn with_frontmost_target(self, target: Option<String>) -> Self {
+    fn with_frontmost_target(self, target: Option<RunningAppOption>) -> Self {
         self.state.lock().expect("lock state").frontmost_target = Some(target);
         self
     }
@@ -234,7 +247,7 @@ impl ActionBackend for FakeBackend {
         Ok(state.accessibility_permission.unwrap_or(true))
     }
 
-    fn frontmost_target(&self) -> Result<Option<String>, MacosError> {
+    fn frontmost_target(&self) -> Result<Option<RunningAppOption>, MacosError> {
         let mut state = self.state.lock().expect("lock state");
         state.frontmost_target_queries.push(true);
         Ok(state.frontmost_target.clone().unwrap_or(None))

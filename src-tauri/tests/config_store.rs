@@ -108,6 +108,7 @@ fn invalid_config_is_rejected_before_any_write() {
         schema_version: 1,
         settings: AppSettings {
             active_profile_id: DEFAULT_PROFILE_ID.to_string(),
+            ..AppSettings::default()
         },
         profiles: vec![LayoutProfile {
             id: DEFAULT_PROFILE_ID.to_string(),

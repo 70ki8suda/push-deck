@@ -1,48 +1,6 @@
 import type { CSSProperties } from "react";
-import type { PadBinding, PadColorId } from "../../lib/types";
-
-const padColors: Record<PadColorId, { background: string; foreground: string }> = {
-  off: {
-    background: "linear-gradient(145deg, #2a312d 0%, #1b201d 100%)",
-    foreground: "#b3beb6",
-  },
-  white: {
-    background: "linear-gradient(145deg, #f4efe4 0%, #ddd6c7 100%)",
-    foreground: "#1d211d",
-  },
-  red: {
-    background: "linear-gradient(145deg, #d35f43 0%, #9f3d25 100%)",
-    foreground: "#fff7f2",
-  },
-  orange: {
-    background: "linear-gradient(145deg, #dd8b39 0%, #b35d1a 100%)",
-    foreground: "#fff6ec",
-  },
-  yellow: {
-    background: "linear-gradient(145deg, #dbc95d 0%, #b79d27 100%)",
-    foreground: "#241f12",
-  },
-  green: {
-    background: "linear-gradient(145deg, #5a9b57 0%, #2f6236 100%)",
-    foreground: "#edf9ee",
-  },
-  cyan: {
-    background: "linear-gradient(145deg, #57a8a4 0%, #276d73 100%)",
-    foreground: "#ecfeff",
-  },
-  blue: {
-    background: "linear-gradient(145deg, #537db9 0%, #2a4d83 100%)",
-    foreground: "#eff6ff",
-  },
-  purple: {
-    background: "linear-gradient(145deg, #7669bc 0%, #493d85 100%)",
-    foreground: "#f3efff",
-  },
-  pink: {
-    background: "linear-gradient(145deg, #cb6c96 0%, #92385d 100%)",
-    foreground: "#fff0f6",
-  },
-};
+import type { PadBinding } from "../../lib/types";
+import { padColors } from "./padPalette";
 
 const gridStyles = {
   panel: {
@@ -82,12 +40,14 @@ export interface GridViewProps {
   pads: PadBinding[];
   selectedPadId: string | null;
   onSelectPad: (padId: string) => void;
+  onMovePad?: (sourcePadId: string, targetPadId: string) => void;
 }
 
 export function GridView({
   pads,
   selectedPadId,
   onSelectPad,
+  onMovePad,
 }: GridViewProps) {
   return (
     <section aria-label="Pad grid" style={gridStyles.panel}>
@@ -109,44 +69,58 @@ export function GridView({
               type="button"
               data-pad-id={pad.padId}
               data-selected={isSelected}
+              draggable
               onClick={() => {
                 onSelectPad(pad.padId);
               }}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/pad-id", pad.padId);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const sourcePadId = event.dataTransfer.getData("text/pad-id");
+                if (sourcePadId && sourcePadId !== pad.padId) {
+                  onMovePad?.(sourcePadId, pad.padId);
+                }
+              }}
               style={{
-                aspectRatio: "1 / 1",
+                aspectRatio: "1.28 / 1",
                 background: palette.background,
-                border: isSelected
-                  ? "2px solid #f3d26b"
-                  : "1px solid rgba(255, 255, 255, 0.08)",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
                 borderRadius: "1rem",
                 boxShadow: isSelected
-                  ? "0 0 0 2px rgba(243, 210, 107, 0.16), 0 14px 24px rgba(7, 9, 8, 0.22)"
+                  ? "inset 0 0 0 2px #f3d26b, 0 0 0 2px rgba(243, 210, 107, 0.16), 0 14px 24px rgba(7, 9, 8, 0.22)"
                   : "0 12px 20px rgba(7, 9, 8, 0.16)",
+                boxSizing: "border-box",
                 color: palette.foreground,
                 cursor: "pointer",
-                display: "grid",
-                gap: "0.2rem",
-                justifyItems: "start",
-                padding: "0.7rem",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "flex-start",
+                overflow: "hidden",
+                minWidth: 0,
+                padding: "0.65rem 0.75rem",
                 textAlign: "left",
                 transition: "transform 140ms ease, box-shadow 140ms ease",
               }}
             >
               <span
                 style={{
-                  fontSize: "0.7rem",
-                  letterSpacing: "0.08em",
-                  opacity: 0.82,
-                  textTransform: "uppercase",
-                }}
-              >
-                {pad.padId}
-              </span>
-              <span
-                style={{
-                  fontSize: "0.9rem",
+                  display: "-webkit-box",
+                  fontSize: "0.82rem",
                   fontWeight: 600,
                   lineHeight: 1.15,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  overflowWrap: "anywhere",
+                  WebkitBoxOrient: "vertical",
+                  WebkitLineClamp: 2,
                 }}
               >
                 {pad.label || "Unassigned"}

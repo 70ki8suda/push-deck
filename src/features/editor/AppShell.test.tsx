@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createRunningAppRefreshLoop,
   createRuntimeRefreshLoop,
   createRuntimeSubscription,
   deriveRuntimeRefreshState,
@@ -13,12 +14,14 @@ import type {
   RuntimeEvent,
   RuntimeState,
 } from "../../lib/types";
+import { DEFAULT_PUSH3_COLOR_CALIBRATION } from "../../lib/types";
 
 function createConfig(): Config {
   return {
     schemaVersion: 1,
     settings: {
       activeProfileId: "default",
+      push3ColorCalibration: DEFAULT_PUSH3_COLOR_CALIBRATION,
     },
     profiles: [
       {
@@ -246,6 +249,39 @@ describe("Task 11 app shell runtime wiring", () => {
     expect(refreshRuntimeState).toHaveBeenCalledTimes(1);
     expect(applyRefreshedState).toHaveBeenCalledWith(response);
     expect(handleLoadError).not.toHaveBeenCalled();
+
+    teardown();
+    vi.useRealTimers();
+  });
+
+  it("reloads running app options after bootstrap", async () => {
+    vi.useFakeTimers();
+    const applyRunningApps = vi.fn();
+    const loadRunningApps = vi.fn().mockResolvedValue([
+      {
+        bundleId: "com.apple.Terminal",
+        appName: "Terminal",
+      },
+    ]);
+
+    const teardown = createRunningAppRefreshLoop({
+      loadRunningApps,
+      applyRunningApps,
+      intervalMs: 250,
+    });
+
+    await Promise.resolve();
+    expect(loadRunningApps).toHaveBeenCalledTimes(1);
+    expect(applyRunningApps).toHaveBeenCalledWith([
+      {
+        bundleId: "com.apple.Terminal",
+        appName: "Terminal",
+      },
+    ]);
+
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(loadRunningApps).toHaveBeenCalledTimes(2);
 
     teardown();
     vi.useRealTimers();

@@ -78,12 +78,122 @@ impl Config {
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub active_profile_id: String,
+    #[serde(default)]
+    pub push3_color_calibration: Push3ColorCalibration,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             active_profile_id: DEFAULT_PROFILE_ID.to_string(),
+            push3_color_calibration: Push3ColorCalibration::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct Push3ColorCalibration {
+    pub white: u8,
+    pub peach: u8,
+    pub coral: u8,
+    pub red: u8,
+    pub orange: u8,
+    pub amber: u8,
+    pub yellow: u8,
+    pub lime: u8,
+    pub chartreuse: u8,
+    pub green: u8,
+    pub mint: u8,
+    pub teal: u8,
+    pub cyan: u8,
+    pub sky: u8,
+    pub blue: u8,
+    pub indigo: u8,
+    pub purple: u8,
+    pub magenta: u8,
+    pub rose: u8,
+    pub pink: u8,
+}
+
+impl Default for Push3ColorCalibration {
+    fn default() -> Self {
+        Self {
+            white: 3,
+            peach: 8,
+            coral: 4,
+            red: 5,
+            orange: 9,
+            amber: 12,
+            yellow: 13,
+            lime: 16,
+            chartreuse: 17,
+            green: 21,
+            mint: 29,
+            teal: 33,
+            cyan: 37,
+            sky: 41,
+            blue: 45,
+            indigo: 48,
+            purple: 49,
+            magenta: 52,
+            rose: 56,
+            pink: 57,
+        }
+    }
+}
+
+impl Push3ColorCalibration {
+    pub fn resolve(&self, color: PadColorId) -> u8 {
+        match color {
+            PadColorId::Off => 0,
+            PadColorId::White => self.white,
+            PadColorId::Peach => self.peach,
+            PadColorId::Coral => self.coral,
+            PadColorId::Red => self.red,
+            PadColorId::Orange => self.orange,
+            PadColorId::Amber => self.amber,
+            PadColorId::Yellow => self.yellow,
+            PadColorId::Lime => self.lime,
+            PadColorId::Chartreuse => self.chartreuse,
+            PadColorId::Green => self.green,
+            PadColorId::Mint => self.mint,
+            PadColorId::Teal => self.teal,
+            PadColorId::Cyan => self.cyan,
+            PadColorId::Sky => self.sky,
+            PadColorId::Blue => self.blue,
+            PadColorId::Indigo => self.indigo,
+            PadColorId::Purple => self.purple,
+            PadColorId::Magenta => self.magenta,
+            PadColorId::Rose => self.rose,
+            PadColorId::Pink => self.pink,
+        }
+    }
+
+    pub fn update(&mut self, logical_color: PadColorId, output_value: u8) {
+        match logical_color {
+            PadColorId::Off => {}
+            PadColorId::White => self.white = output_value,
+            PadColorId::Peach => self.peach = output_value,
+            PadColorId::Coral => self.coral = output_value,
+            PadColorId::Red => self.red = output_value,
+            PadColorId::Orange => self.orange = output_value,
+            PadColorId::Amber => self.amber = output_value,
+            PadColorId::Yellow => self.yellow = output_value,
+            PadColorId::Lime => self.lime = output_value,
+            PadColorId::Chartreuse => self.chartreuse = output_value,
+            PadColorId::Green => self.green = output_value,
+            PadColorId::Mint => self.mint = output_value,
+            PadColorId::Teal => self.teal = output_value,
+            PadColorId::Cyan => self.cyan = output_value,
+            PadColorId::Sky => self.sky = output_value,
+            PadColorId::Blue => self.blue = output_value,
+            PadColorId::Indigo => self.indigo = output_value,
+            PadColorId::Purple => self.purple = output_value,
+            PadColorId::Magenta => self.magenta = output_value,
+            PadColorId::Rose => self.rose = output_value,
+            PadColorId::Pink => self.pink = output_value,
         }
     }
 }
@@ -134,13 +244,24 @@ impl PadBinding {
 pub enum PadColorId {
     Off,
     White,
+    Peach,
+    Coral,
     Red,
     Orange,
+    Amber,
     Yellow,
+    Lime,
+    Chartreuse,
     Green,
+    Mint,
+    Teal,
     Cyan,
+    Sky,
     Blue,
+    Indigo,
     Purple,
+    Magenta,
+    Rose,
     Pink,
 }
 
