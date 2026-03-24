@@ -33,25 +33,9 @@ function createPads(): PadBinding[] {
   }));
 }
 
-function createDataTransfer() {
-  const data = new Map<string, string>();
-
-  return {
-    effectAllowed: "",
-    dropEffect: "",
-    setData(type: string, value: string) {
-      data.set(type, value);
-    },
-    getData(type: string) {
-      return data.get(type) ?? "";
-    },
-  };
-}
-
 describe("GridView", () => {
-  it("moves a pad when drag data is available on drop", () => {
+  it("moves a pad via mouse drag gestures", () => {
     const onMovePad = vi.fn();
-    const dataTransfer = createDataTransfer();
 
     render(
       <GridView
@@ -65,17 +49,15 @@ describe("GridView", () => {
     const source = screen.getByRole("button", { name: "Finder" });
     const target = screen.getByRole("button", { name: "Terminal" });
 
-    fireEvent.dragStart(source, { dataTransfer });
-    fireEvent.dragOver(target, { dataTransfer });
-    fireEvent.drop(target, { dataTransfer });
+    fireEvent.mouseDown(source, { button: 0, buttons: 1 });
+    fireEvent.mouseEnter(target, { buttons: 1 });
+    fireEvent.mouseUp(target, { button: 0, buttons: 0 });
 
     expect(onMovePad).toHaveBeenCalledWith("r0c0", "r0c1");
   });
 
-  it("still moves a pad when the drop event payload is empty", () => {
+  it("clears pointer drag state when released off-grid", () => {
     const onMovePad = vi.fn();
-    const dragStartDataTransfer = createDataTransfer();
-    const dropDataTransfer = createDataTransfer();
 
     render(
       <GridView
@@ -89,10 +71,25 @@ describe("GridView", () => {
     const source = screen.getByRole("button", { name: "Finder" });
     const target = screen.getByRole("button", { name: "Terminal" });
 
-    fireEvent.dragStart(source, { dataTransfer: dragStartDataTransfer });
-    fireEvent.dragOver(target, { dataTransfer: dropDataTransfer });
-    fireEvent.drop(target, { dataTransfer: dropDataTransfer });
+    fireEvent.mouseDown(source, { button: 0, buttons: 1 });
+    fireEvent.mouseUp(window, { button: 0, buttons: 0 });
+    fireEvent.mouseEnter(target, { buttons: 0 });
+    fireEvent.mouseUp(target, { button: 0, buttons: 0 });
 
-    expect(onMovePad).toHaveBeenCalledWith("r0c0", "r0c1");
+    expect(onMovePad).not.toHaveBeenCalled();
+  });
+
+  it("disables native html drag handling so mouse release stays in app control", () => {
+    render(
+      <GridView
+        pads={createPads()}
+        selectedPadId="r0c0"
+        onSelectPad={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Finder" }).getAttribute("draggable"),
+    ).toBeNull();
   });
 });

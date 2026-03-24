@@ -38,7 +38,7 @@ const shellStyles = {
 } satisfies Record<string, CSSProperties>;
 
 function shouldShowPush3Calibration() {
-  return import.meta.env.VITE_SHOW_PUSH3_CALIBRATION === "true";
+  return import.meta.env.VITE_SHOW_PUSH3_CALIBRATION !== "false";
 }
 
 export interface EditorPageProps {

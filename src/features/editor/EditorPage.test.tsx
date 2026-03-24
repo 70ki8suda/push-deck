@@ -210,7 +210,7 @@ describe("Task 11 editor shell", () => {
         })}
         deviceName="Ableton Push 3"
         isDeviceConnected={false}
-        canToggleColorMapping={false}
+        canToggleColorMapping
         isColorMappingVisible={false}
       />,
     );
@@ -219,7 +219,8 @@ describe("Task 11 editor shell", () => {
     expect(html).toContain("Device offline");
     expect(html).toContain("Ableton Push 3");
     expect(html).toContain("Color mapping");
-    expect(html).toContain("Unavailable in this build");
+    expect(html).toContain("Mapping hidden");
+    expect(html).toContain("Show mapping");
   });
 
   it("surfaces shortcut-disabled state in the detail panel shell", () => {
@@ -271,13 +272,11 @@ describe("Task 11 editor shell", () => {
       />,
     );
 
-    expect(html).not.toContain("Push 3 palette match");
     expect(html).not.toContain("Preview 0-63");
+    expect(html).toContain("Show mapping");
   });
 
   it("keeps the push3 calibration controls hidden until toggled", () => {
-    vi.stubEnv("VITE_SHOW_PUSH3_CALIBRATION", "true");
-
     const html = renderToStaticMarkup(
       <EditorPage
         config={createConfig()}
@@ -296,7 +295,6 @@ describe("Task 11 editor shell", () => {
   });
 
   it("shows and hides the push3 calibration controls from the status bar toggle", async () => {
-    vi.stubEnv("VITE_SHOW_PUSH3_CALIBRATION", "true");
     const user = userEvent.setup();
 
     render(
@@ -322,6 +320,27 @@ describe("Task 11 editor shell", () => {
     await user.click(screen.getByRole("button", { name: "Hide mapping" }));
 
     expect(screen.queryByText("Push 3 palette match")).toBeNull();
+  });
+
+  it("can disable the color mapping tools explicitly with the env flag", () => {
+    vi.stubEnv("VITE_SHOW_PUSH3_CALIBRATION", "false");
+
+    const html = renderToStaticMarkup(
+      <EditorPage
+        config={createConfig()}
+        runtimeState={createRuntimeState()}
+        recovery={null}
+        selectedPadId="r0c0"
+        deviceName="Ableton Push 3"
+        isDeviceConnected
+        onRestoreDefaultConfig={() => {}}
+        onSelectPad={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Unavailable in this build");
+    expect(html).not.toContain("Show mapping");
+    expect(html).not.toContain("Preview 0-63");
   });
 
   it("replaces normal editor actions with the recovery flow", () => {

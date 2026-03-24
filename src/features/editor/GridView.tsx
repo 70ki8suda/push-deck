@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { PadBinding } from "../../lib/types";
 import { padColors } from "./padPalette";
@@ -50,7 +50,66 @@ export function GridView({
   onSelectPad,
   onMovePad,
 }: GridViewProps) {
-  const [draggedPadId, setDraggedPadId] = useState<string | null>(null);
+  const [pointerDraggedPadId, setPointerDraggedPadId] = useState<string | null>(null);
+  const [pointerDropTargetPadId, setPointerDropTargetPadId] = useState<string | null>(null);
+  const pointerDraggedPadIdRef = useRef<string | null>(null);
+  const pointerDropTargetPadIdRef = useRef<string | null>(null);
+
+  const clearPointerDrag = () => {
+    pointerDraggedPadIdRef.current = null;
+    pointerDropTargetPadIdRef.current = null;
+    setPointerDraggedPadId(null);
+    setPointerDropTargetPadId(null);
+  };
+
+  const startPointerDrag = (padId: string) => {
+    pointerDraggedPadIdRef.current = padId;
+    pointerDropTargetPadIdRef.current = padId;
+    setPointerDraggedPadId(padId);
+    setPointerDropTargetPadId(padId);
+  };
+
+  const updatePointerTarget = (padId: string, buttons: number) => {
+    if (pointerDraggedPadIdRef.current === null || buttons !== 1) {
+      return;
+    }
+
+    if (pointerDropTargetPadIdRef.current === padId) {
+      return;
+    }
+
+    pointerDropTargetPadIdRef.current = padId;
+    setPointerDropTargetPadId(padId);
+  };
+
+  const finishPointerDrag = (padId: string, button: number) => {
+    const sourcePadId = pointerDraggedPadIdRef.current;
+    if (button !== 0 || sourcePadId === null) {
+      return;
+    }
+
+    if (sourcePadId !== padId) {
+      onMovePad?.(sourcePadId, padId);
+    }
+
+    clearPointerDrag();
+  };
+
+  useEffect(() => {
+    if (pointerDraggedPadId === null) {
+      return;
+    }
+
+    globalThis.addEventListener("pointerup", clearPointerDrag);
+    globalThis.addEventListener("pointercancel", clearPointerDrag);
+    globalThis.addEventListener("mouseup", clearPointerDrag);
+
+    return () => {
+      globalThis.removeEventListener("pointerup", clearPointerDrag);
+      globalThis.removeEventListener("pointercancel", clearPointerDrag);
+      globalThis.removeEventListener("mouseup", clearPointerDrag);
+    };
+  }, [pointerDraggedPadId]);
 
   return (
     <section aria-label="Pad grid" style={gridStyles.panel}>
@@ -65,6 +124,9 @@ export function GridView({
         {pads.map((pad) => {
           const palette = padColors[pad.color];
           const isSelected = pad.padId === selectedPadId;
+          const isPointerDragged = pad.padId === pointerDraggedPadId;
+          const isPointerDropTarget =
+            pad.padId === pointerDropTargetPadId && pointerDraggedPadId !== null;
 
           return (
             <button
@@ -72,45 +134,59 @@ export function GridView({
               type="button"
               data-pad-id={pad.padId}
               data-selected={isSelected}
-              draggable
               onClick={() => {
                 onSelectPad(pad.padId);
               }}
-              onDragStart={(event) => {
-                setDraggedPadId(pad.padId);
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/pad-id", pad.padId);
-                event.dataTransfer.setData("text/plain", pad.padId);
-              }}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-              }}
-              onDragEnd={() => {
-                setDraggedPadId(null);
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const sourcePadId =
-                  event.dataTransfer.getData("text/pad-id") ||
-                  event.dataTransfer.getData("text/plain") ||
-                  draggedPadId;
-                if (sourcePadId && sourcePadId !== pad.padId) {
-                  onMovePad?.(sourcePadId, pad.padId);
+              onPointerDown={(event) => {
+                if (event.button !== 0) {
+                  return;
                 }
-                setDraggedPadId(null);
+
+                startPointerDrag(pad.padId);
+              }}
+              onPointerEnter={(event) => {
+                updatePointerTarget(pad.padId, event.buttons);
+              }}
+              onPointerMove={(event) => {
+                updatePointerTarget(pad.padId, event.buttons);
+              }}
+              onPointerUp={(event) => {
+                if (event.button !== 0) {
+                  return;
+                }
+
+                finishPointerDrag(pad.padId, event.button);
+              }}
+              onMouseDown={(event) => {
+                if (event.button !== 0) {
+                  return;
+                }
+
+                startPointerDrag(pad.padId);
+              }}
+              onMouseEnter={(event) => {
+                updatePointerTarget(pad.padId, event.buttons);
+              }}
+              onMouseUp={(event) => {
+                if (event.button !== 0) {
+                  return;
+                }
+
+                finishPointerDrag(pad.padId, event.button);
               }}
               style={{
                 aspectRatio: "1.28 / 1",
                 background: palette.background,
                 border: "1px solid rgba(255, 255, 255, 0.08)",
                 borderRadius: "1rem",
-                boxShadow: isSelected
-                  ? "inset 0 0 0 2px #f3d26b, 0 0 0 2px rgba(243, 210, 107, 0.16), 0 14px 24px rgba(7, 9, 8, 0.22)"
-                  : "0 12px 20px rgba(7, 9, 8, 0.16)",
+                boxShadow: isPointerDropTarget
+                  ? "inset 0 0 0 2px #f0dd89, 0 0 0 2px rgba(240, 221, 137, 0.12), 0 16px 28px rgba(7, 9, 8, 0.24)"
+                  : isSelected
+                    ? "inset 0 0 0 2px #f3d26b, 0 0 0 2px rgba(243, 210, 107, 0.16), 0 14px 24px rgba(7, 9, 8, 0.22)"
+                    : "0 12px 20px rgba(7, 9, 8, 0.16)",
                 boxSizing: "border-box",
                 color: palette.foreground,
-                cursor: "pointer",
+                cursor: pointerDraggedPadId === null ? "pointer" : "grabbing",
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "center",
@@ -119,6 +195,7 @@ export function GridView({
                 minWidth: 0,
                 padding: "0.65rem 0.75rem",
                 textAlign: "left",
+                transform: isPointerDragged ? "scale(0.97)" : undefined,
                 transition: "transform 140ms ease, box-shadow 140ms ease",
               }}
             >
