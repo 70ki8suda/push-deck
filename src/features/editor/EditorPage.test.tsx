@@ -1,5 +1,9 @@
+// @vitest-environment jsdom
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { EditorPage, swapPadBindings, persistPadBindingSwap } from "./EditorPage";
 import { GridView } from "./GridView";
 import { StatusBar } from "../status/StatusBar";
@@ -12,6 +16,7 @@ import type {
 import { DEFAULT_PUSH3_COLOR_CALIBRATION } from "../../lib/types";
 
 afterEach(() => {
+  cleanup();
   vi.unstubAllEnvs();
 });
 
@@ -194,7 +199,7 @@ describe("Task 11 editor shell", () => {
     expect(html).toContain('data-selected="true"');
   });
 
-  it("renders status state including disabled shortcut capability", () => {
+  it("renders status state including color mapping controls", () => {
     const html = renderToStaticMarkup(
       <StatusBar
         runtimeState={createRuntimeState({
@@ -205,13 +210,16 @@ describe("Task 11 editor shell", () => {
         })}
         deviceName="Ableton Push 3"
         isDeviceConnected={false}
+        canToggleColorMapping={false}
+        isColorMappingVisible={false}
       />,
     );
 
     expect(html).toContain("Waiting for device");
     expect(html).toContain("Device offline");
     expect(html).toContain("Ableton Push 3");
-    expect(html).toContain("Shortcut capability unavailable");
+    expect(html).toContain("Color mapping");
+    expect(html).toContain("Unavailable in this build");
   });
 
   it("surfaces shortcut-disabled state in the detail panel shell", () => {
@@ -267,7 +275,7 @@ describe("Task 11 editor shell", () => {
     expect(html).not.toContain("Preview 0-63");
   });
 
-  it("renders the push3 calibration controls when the dev flag is enabled", () => {
+  it("keeps the push3 calibration controls hidden until toggled", () => {
     vi.stubEnv("VITE_SHOW_PUSH3_CALIBRATION", "true");
 
     const html = renderToStaticMarkup(
@@ -283,10 +291,37 @@ describe("Task 11 editor shell", () => {
       />,
     );
 
-    expect(html).toContain("Push 3 palette match");
-    expect(html).toContain("App Red");
-    expect(html).toContain("App Blue");
-    expect(html).toContain("Preview 0-63");
+    expect(html).not.toContain("Preview 0-63");
+    expect(html).toContain("Show mapping");
+  });
+
+  it("shows and hides the push3 calibration controls from the status bar toggle", async () => {
+    vi.stubEnv("VITE_SHOW_PUSH3_CALIBRATION", "true");
+    const user = userEvent.setup();
+
+    render(
+      <EditorPage
+        config={createConfig()}
+        runtimeState={createRuntimeState()}
+        recovery={null}
+        selectedPadId="r0c0"
+        deviceName="Ableton Push 3"
+        isDeviceConnected
+        onRestoreDefaultConfig={() => {}}
+        onSelectPad={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText("Push 3 palette match")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Show mapping" }));
+
+    expect(screen.getByText("Push 3 palette match")).toBeTruthy();
+    expect(screen.getByText("Preview 0-63")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Hide mapping" }));
+
+    expect(screen.queryByText("Push 3 palette match")).toBeNull();
   });
 
   it("replaces normal editor actions with the recovery flow", () => {

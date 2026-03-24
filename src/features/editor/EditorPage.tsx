@@ -242,6 +242,7 @@ export function EditorPage({
   const [localConfig, setLocalConfig] = useState(config);
   const [localRuntimeState, setLocalRuntimeState] = useState(runtimeState);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [isPush3CalibrationVisible, setIsPush3CalibrationVisible] = useState(false);
 
   useEffect(() => {
     setLocalConfig(config);
@@ -256,6 +257,12 @@ export function EditorPage({
   const effectiveSelectedPadId = selectedPad?.padId ?? null;
   const isRecoveryMode = localRuntimeState.app_state === "config_recovery_required";
   const showPush3Calibration = shouldShowPush3Calibration();
+
+  useEffect(() => {
+    if (!showPush3Calibration) {
+      setIsPush3CalibrationVisible(false);
+    }
+  }, [showPush3Calibration]);
 
   async function applySavedBinding(binding: PadBinding) {
     const next = await persistPadBindingEdit({ binding });
@@ -395,8 +402,16 @@ export function EditorPage({
         runtimeState={localRuntimeState}
         deviceName={deviceName}
         isDeviceConnected={isDeviceConnected}
+        canToggleColorMapping={showPush3Calibration && !isRecoveryMode && localConfig !== null}
+        isColorMappingVisible={isPush3CalibrationVisible}
+        onToggleColorMapping={() => {
+          setIsPush3CalibrationVisible((current) => !current);
+        }}
       />
-      {!isRecoveryMode && localConfig !== null && showPush3Calibration ? (
+      {!isRecoveryMode &&
+      localConfig !== null &&
+      showPush3Calibration &&
+      isPush3CalibrationVisible ? (
         <Push3CalibrationPanel
           calibration={localConfig.settings.push3ColorCalibration}
           onUpdateCalibration={handleUpdateCalibration}

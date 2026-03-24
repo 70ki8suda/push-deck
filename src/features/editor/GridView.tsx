@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { PadBinding } from "../../lib/types";
 import { padColors } from "./padPalette";
@@ -49,6 +50,8 @@ export function GridView({
   onSelectPad,
   onMovePad,
 }: GridViewProps) {
+  const [draggedPadId, setDraggedPadId] = useState<string | null>(null);
+
   return (
     <section aria-label="Pad grid" style={gridStyles.panel}>
       <div style={gridStyles.header}>
@@ -74,19 +77,28 @@ export function GridView({
                 onSelectPad(pad.padId);
               }}
               onDragStart={(event) => {
+                setDraggedPadId(pad.padId);
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/pad-id", pad.padId);
+                event.dataTransfer.setData("text/plain", pad.padId);
               }}
               onDragOver={(event) => {
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
               }}
+              onDragEnd={() => {
+                setDraggedPadId(null);
+              }}
               onDrop={(event) => {
                 event.preventDefault();
-                const sourcePadId = event.dataTransfer.getData("text/pad-id");
+                const sourcePadId =
+                  event.dataTransfer.getData("text/pad-id") ||
+                  event.dataTransfer.getData("text/plain") ||
+                  draggedPadId;
                 if (sourcePadId && sourcePadId !== pad.padId) {
                   onMovePad?.(sourcePadId, pad.padId);
                 }
+                setDraggedPadId(null);
               }}
               style={{
                 aspectRatio: "1.28 / 1",

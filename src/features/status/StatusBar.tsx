@@ -56,12 +56,18 @@ export interface StatusBarProps {
   runtimeState: RuntimeState;
   deviceName: string | null;
   isDeviceConnected: boolean;
+  canToggleColorMapping?: boolean;
+  isColorMappingVisible?: boolean;
+  onToggleColorMapping?: () => void;
 }
 
 export function StatusBar({
   runtimeState,
   deviceName,
   isDeviceConnected,
+  canToggleColorMapping = false,
+  isColorMappingVisible = false,
+  onToggleColorMapping,
 }: StatusBarProps) {
   return (
     <section aria-label="Runtime status" style={statusStyles.bar}>
@@ -84,17 +90,37 @@ export function StatusBar({
       </article>
 
       <article style={statusStyles.card}>
-        <p style={statusStyles.label}>Shortcut capability</p>
+        <p style={statusStyles.label}>Color mapping</p>
         <p style={statusStyles.value}>
-          {runtimeState.capabilities.shortcut === "available"
-            ? "Shortcut capability available"
-            : "Shortcut capability unavailable"}
+          {canToggleColorMapping
+            ? isColorMappingVisible
+              ? "Mapping visible"
+              : "Mapping hidden"
+            : "Unavailable in this build"}
         </p>
         <p style={statusStyles.detail}>
-          {runtimeState.capabilities.shortcut === "available"
-            ? "Shortcut actions can be tested from the selected pad."
-            : "Grant Accessibility permission to enable shortcut actions and tests."}
+          {canToggleColorMapping
+            ? "Open the Push 3 palette matching tools when you need to adjust color assignments."
+            : "Enable the development-only mapping flag to access the Push 3 color assignment tools."}
         </p>
+        {canToggleColorMapping ? (
+          <button
+            type="button"
+            onClick={onToggleColorMapping}
+            style={{
+              alignSelf: "start",
+              background: "linear-gradient(145deg, #f0dd89 0%, #cc9d3a 100%)",
+              border: "1px solid rgba(175, 193, 178, 0.14)",
+              borderRadius: "999px",
+              color: "#1f190d",
+              cursor: "pointer",
+              fontWeight: 700,
+              padding: "0.7rem 1rem",
+            }}
+          >
+            {isColorMappingVisible ? "Hide mapping" : "Show mapping"}
+          </button>
+        ) : null}
       </article>
     </section>
   );
