@@ -2,6 +2,8 @@ use tauri::Runtime;
 
 #[cfg(target_os = "macos")]
 use coremidi::{Client, EventList, InputPortWithContext, Protocol, Source, Sources};
+#[cfg(target_os = "macos")]
+use coremidi_sys::{MIDIEventList, MIDIEventPacket};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushModeEvent {
@@ -59,6 +61,26 @@ pub fn decode_midi1_push_mode_word(word: u32) -> Option<PushModeEvent> {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub fn decode_push_mode_event_list(event_list: &EventList) -> Option<PushModeEvent> {
+    unsafe {
+        let event_list_ptr = std::ptr::from_ref(event_list).cast::<MIDIEventList>();
+        let packet_ptr = std::ptr::addr_of!((*event_list_ptr).packet).cast::<MIDIEventPacket>();
+        let word_count_ptr = std::ptr::addr_of!((*packet_ptr).wordCount);
+        let word_count = word_count_ptr.read_unaligned() as usize;
+        let words_ptr = std::ptr::addr_of!((*packet_ptr).words).cast::<u32>();
+
+        for index in 0..word_count {
+            let word = words_ptr.add(index).read_unaligned();
+            if let Some(event) = decode_midi1_push_mode_word(word) {
+                return Some(event);
+            }
+        }
+    }
+
+    None
+}
+
 #[derive(Debug)]
 pub enum Push3ModeSubscription<R: Runtime> {
     Active(Push3ModeConnection<R>),
@@ -108,15 +130,11 @@ pub fn subscribe_push3_mode_runtime_events<R: Runtime>(
             "push-deck-mode-port",
             Protocol::Midi10,
             move |event_list: &EventList, context: &mut Push3ModeContext<R>| {
-                for packet in event_list {
-                    for word in packet.data() {
-                        if let Some(event) = decode_midi1_push_mode_word(*word) {
-                            crate::schedule_push_mode_event_handling(
-                                context.app_handle.clone(),
-                                event,
-                            );
-                        }
-                    }
+                if let Some(event) = decode_push_mode_event_list(event_list) {
+                    crate::schedule_push_mode_event_handling(
+                        context.app_handle.clone(),
+                        event,
+                    );
                 }
             },
         )

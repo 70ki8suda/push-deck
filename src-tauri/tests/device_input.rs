@@ -9,6 +9,9 @@ use serde_json::json;
 use std::sync::mpsc::channel;
 use tauri::Listener;
 
+#[cfg(target_os = "macos")]
+use coremidi::{EventBuffer, Protocol};
+
 #[test]
 fn selects_the_push3_user_port_source_when_present() {
     let selected = select_push3_user_port_source(&[
@@ -82,6 +85,17 @@ fn ignores_unrelated_push_mode_messages() {
     assert_eq!(
         decode_push_mode_message(&[0xF0, 0x00, 0x21, 0x1D, 0x01, 0x01, 0x0B, 0x01, 0xF7]),
         None
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn decodes_push_mode_event_lists_without_iterating_over_packed_packets() {
+    let event_list = EventBuffer::new(Protocol::Midi10).with_packet(0, &[0x20B03B7F]);
+
+    assert_eq!(
+        push_deck::device::decode_push_mode_event_list(&event_list),
+        Some(PushModeEvent::UserModeButtonPressed)
     );
 }
 
