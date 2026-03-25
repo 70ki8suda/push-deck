@@ -28,7 +28,7 @@ use std::time::Duration;
 use tauri::Manager;
 
 const FAST_RESUME_RETRY_ATTEMPTS: usize = 3;
-const FAST_RESUME_RETRY_DELAY: Duration = Duration::from_millis(75);
+const FAST_RESUME_RETRY_DELAY: Duration = Duration::from_millis(35);
 
 #[derive(Debug, Default, Clone, Copy)]
 struct NullDiscoverySource;

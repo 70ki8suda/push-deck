@@ -406,6 +406,46 @@ fn background_task_dispatch_returns_before_the_task_finishes() {
 }
 
 #[test]
+fn user_mode_button_press_syncs_leds_before_emitting_runtime_snapshot() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+    let app = tauri::test::mock_app();
+    let event_log = Arc::new(Mutex::new(Vec::new()));
+
+    handle_push_mode_event_with(
+        &app.handle(),
+        &host,
+        PushModeEvent::UserModeButtonPressed,
+        {
+            let event_log = event_log.clone();
+            move |_| {
+                event_log
+                    .lock()
+                    .expect("lock event log")
+                    .push("resume".to_string());
+                Ok(true)
+            }
+        },
+        || Ok(()),
+    )
+    .expect("event handler should succeed");
+
+    event_log
+        .lock()
+        .expect("lock event log")
+        .push("after-handler".to_string());
+
+    assert_eq!(led_backend.synced_configs().len(), 1);
+}
+
+#[test]
 fn update_pad_binding_syncs_the_saved_config_to_the_led_backend() {
     let backend = TestConfigStoreBackend::default();
     let store = ConfigStore::with_backend(path("config.json"), backend);
