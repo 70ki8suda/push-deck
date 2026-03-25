@@ -15,12 +15,14 @@ use crate::device::SystemDiscoverySource;
 use crate::device::{
     emit_decoded_pad_input_event,
     push3::DecodedPadInputMessage,
-    subscribe_push3_user_port_runtime_events, CoreMidiDiscoverySource, DeviceDiscoverySource,
-    Push3InputSubscription, StartupDiscoverySource,
+    subscribe_push3_mode_runtime_events, subscribe_push3_user_port_runtime_events,
+    CoreMidiDiscoverySource, DeviceDiscoverySource, Push3InputSubscription, Push3ModeSubscription,
+    PushModeEvent, StartupDiscoverySource,
 };
 use crate::events::{emit_runtime_event, RuntimeEvent};
 use crate::macos::ActionBackend;
 use std::error::Error;
+use std::sync::Mutex;
 use tauri::Manager;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -58,10 +60,16 @@ where
     Ok(())
 }
 
-fn emit_runtime_snapshot<R: tauri::Runtime>(
+fn emit_runtime_snapshot<R, S, A, L>(
     app: &tauri::AppHandle<R>,
-    host: &DefaultCommandHost,
-) -> Result<(), Box<dyn Error>> {
+    host: &crate::commands::CommandHost<S, A, L>,
+) -> Result<(), Box<dyn Error>>
+where
+    R: tauri::Runtime,
+    S: crate::config::store::ConfigStoreBackend,
+    A: crate::macos::ActionBackend,
+    L: crate::device::Push3LedBackend,
+{
     let response = host.load_current_config()?;
 
     let (device_name, device_connected, runtime_state) = match response {
@@ -98,17 +106,109 @@ fn emit_runtime_snapshot<R: tauri::Runtime>(
     Ok(())
 }
 
+fn store_subscription_state<R, C>(
+    app: &tauri::AppHandle<R>,
+    connection: Option<C>,
+) where
+    R: tauri::Runtime,
+    C: Send + Sync + 'static,
+{
+    if let Some(state) = app.try_state::<Mutex<Option<C>>>() {
+        *state.lock().expect("subscription state lock poisoned") = connection;
+    } else {
+        app.manage(Mutex::new(connection));
+    }
+}
+
 pub fn store_push3_input_subscription<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     subscription: Push3InputSubscription<R>,
 ) -> bool {
-    match subscription {
-        Push3InputSubscription::Active(connection) => {
-            app.manage(std::sync::Mutex::new(Some(connection)));
-            true
+    let connection = match subscription {
+        Push3InputSubscription::Active(connection) => Some(connection),
+        Push3InputSubscription::NotConnected => None,
+    };
+    let managed = connection.is_some();
+    store_subscription_state(app, connection);
+    managed
+}
+
+pub fn store_push3_mode_subscription<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    subscription: Push3ModeSubscription,
+) -> bool {
+    let connection = match subscription {
+        Push3ModeSubscription::Active(connection) => Some(connection),
+        Push3ModeSubscription::NotConnected => None,
+    };
+    let managed = connection.is_some();
+    store_subscription_state(app, connection);
+    managed
+}
+
+fn fast_resume_push3_input_subscription<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<bool, String> {
+    let subscription = subscribe_push3_user_port_runtime_events(app)?;
+    Ok(store_push3_input_subscription(app, subscription))
+}
+
+pub fn handle_push_mode_event_with<R, RF, FF>(
+    app: &tauri::AppHandle<R>,
+    host: &crate::commands::CommandHost<
+        impl crate::config::store::ConfigStoreBackend,
+        impl crate::macos::ActionBackend,
+        impl crate::device::Push3LedBackend,
+    >,
+    event: PushModeEvent,
+    mut fast_resume: RF,
+    mut fallback_refresh: FF,
+) -> Result<(), String>
+where
+    R: tauri::Runtime,
+    RF: FnMut(&tauri::AppHandle<R>) -> Result<bool, String>,
+    FF: FnMut() -> Result<(), String>,
+{
+    match event {
+        PushModeEvent::UserModeButtonPressed | PushModeEvent::UserModeEntered => {
+            match fast_resume(app) {
+                Ok(true) => {
+                    host.sync_push3_leds().map_err(|error| error.to_string())?;
+                    emit_runtime_snapshot(app, host).map_err(|error| error.to_string())?;
+                }
+                Ok(false) => fallback_refresh()?,
+                Err(error) => {
+                    eprintln!("push3 fast resume failed: {error}");
+                    fallback_refresh()?;
+                }
+            }
         }
-        Push3InputSubscription::NotConnected => false,
+        PushModeEvent::UserModeButtonReleased | PushModeEvent::UserModeExited => {}
     }
+
+    Ok(())
+}
+
+pub fn handle_push_mode_event<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    host: &crate::commands::CommandHost<
+        impl crate::config::store::ConfigStoreBackend,
+        impl crate::macos::ActionBackend,
+        impl crate::device::Push3LedBackend,
+    >,
+    event: PushModeEvent,
+) -> Result<(), String> {
+    handle_push_mode_event_with(
+        app,
+        host,
+        event,
+        fast_resume_push3_input_subscription,
+        || {
+            refresh_runtime_with_fallback(host, &CoreMidiDiscoverySource, &SystemDiscoverySource)
+                .map_err(|error| error.to_string())?;
+            emit_runtime_snapshot(app, host).map_err(|error| error.to_string())
+        },
+    )
 }
 
 pub fn handle_runtime_pad_input_message<R: tauri::Runtime>(
@@ -146,6 +246,15 @@ fn bootstrap_runtime<R: tauri::Runtime>(
         }
         Err(error) => {
             eprintln!("push3 input subscription unavailable at startup: {error}");
+        }
+    }
+
+    match subscribe_push3_mode_runtime_events(app) {
+        Ok(subscription) => {
+            let _ = store_push3_mode_subscription(app, subscription);
+        }
+        Err(error) => {
+            eprintln!("push3 mode subscription unavailable at startup: {error}");
         }
     }
 

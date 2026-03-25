@@ -6,11 +6,14 @@ use push_deck::commands::{
 use push_deck::config::schema::{Config, PadAction, PadBinding, PadColorId};
 use push_deck::config::store::{ConfigStore, ConfigStoreBackend};
 use push_deck::device::push3::DecodedPadInputMessage;
-use push_deck::device::{DeviceDiscoveryError, DeviceDiscoverySource, StartupDiscoverySource};
+use push_deck::device::{
+    DeviceDiscoveryError, DeviceDiscoverySource, PushModeEvent, StartupDiscoverySource,
+};
 use push_deck::macos::{ActionBackend, MacosError};
 use push_deck::device::output::{Push3LedBackend, Push3LedError};
 use push_deck::{
-    handle_runtime_pad_input_message, refresh_runtime_with_fallback, should_hide_on_close,
+    handle_push_mode_event_with, handle_runtime_pad_input_message, refresh_runtime_with_fallback,
+    should_hide_on_close,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -251,6 +254,81 @@ fn runtime_pad_press_dispatches_the_bound_action() {
         action_backend.launch_calls(),
         vec!["com.apple.Terminal".to_string()]
     );
+}
+
+#[test]
+fn user_mode_button_press_triggers_fast_resume_and_led_resync() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+    let app = tauri::test::mock_app();
+    let resume_calls = Arc::new(Mutex::new(0usize));
+    let fallback_calls = Arc::new(Mutex::new(0usize));
+
+    handle_push_mode_event_with(
+        &app.handle(),
+        &host,
+        PushModeEvent::UserModeButtonPressed,
+        {
+            let resume_calls = resume_calls.clone();
+            move |_| {
+                *resume_calls.lock().expect("lock resume calls") += 1;
+                Ok(true)
+            }
+        },
+        {
+            let fallback_calls = fallback_calls.clone();
+            move || {
+                *fallback_calls.lock().expect("lock fallback calls") += 1;
+                Ok(())
+            }
+        },
+    )
+    .expect("fast resume should succeed");
+
+    assert_eq!(*resume_calls.lock().expect("lock resume calls"), 1);
+    assert_eq!(*fallback_calls.lock().expect("lock fallback calls"), 0);
+    assert_eq!(led_backend.synced_configs().len(), 1);
+    assert_eq!(led_backend.synced_configs()[0], Config::default());
+}
+
+#[test]
+fn failed_fast_resume_falls_back_without_panicking() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+    let app = tauri::test::mock_app();
+    let fallback_calls = Arc::new(Mutex::new(0usize));
+
+    handle_push_mode_event_with(
+        &app.handle(),
+        &host,
+        PushModeEvent::UserModeEntered,
+        |_| Err("user port unavailable".to_string()),
+        {
+            let fallback_calls = fallback_calls.clone();
+            move || {
+                *fallback_calls.lock().expect("lock fallback calls") += 1;
+                Ok(())
+            }
+        },
+    )
+    .expect("fallback should keep execution alive");
+
+    assert_eq!(*fallback_calls.lock().expect("lock fallback calls"), 1);
+    assert!(led_backend.synced_configs().is_empty());
 }
 
 #[test]
