@@ -1,8 +1,9 @@
 use push_deck::device::{
-    decode_midi1_channel_voice_word, emit_decoded_pad_input_event,
+    decode_midi1_channel_voice_word, decode_push_mode_message, emit_decoded_pad_input_event,
     select_push3_user_port_source, Push3InputSourceDescriptor,
 };
 use push_deck::device::push3::DecodedPadInputMessage;
+use push_deck::device::PushModeEvent;
 use push_deck::events::RUNTIME_EVENT_NAME;
 use serde_json::json;
 use std::sync::mpsc::channel;
@@ -53,6 +54,35 @@ fn decodes_midi10_note_on_and_note_off_words_into_pad_messages() {
         })
     );
     assert_eq!(decode_midi1_channel_voice_word(0x10f00000), None);
+}
+
+#[test]
+fn decodes_push_user_mode_cc_and_sysex_messages() {
+    assert_eq!(
+        decode_push_mode_message(&[0xB0, 0x3B, 0x7F]),
+        Some(PushModeEvent::UserModeButtonPressed)
+    );
+    assert_eq!(
+        decode_push_mode_message(&[0xB0, 0x3B, 0x00]),
+        Some(PushModeEvent::UserModeButtonReleased)
+    );
+    assert_eq!(
+        decode_push_mode_message(&[0xF0, 0x00, 0x21, 0x1D, 0x01, 0x01, 0x0A, 0x01, 0xF7]),
+        Some(PushModeEvent::UserModeEntered)
+    );
+    assert_eq!(
+        decode_push_mode_message(&[0xF0, 0x00, 0x21, 0x1D, 0x01, 0x01, 0x0A, 0x00, 0xF7]),
+        Some(PushModeEvent::UserModeExited)
+    );
+}
+
+#[test]
+fn ignores_unrelated_push_mode_messages() {
+    assert_eq!(decode_push_mode_message(&[0x90, 0x3B, 0x7F]), None);
+    assert_eq!(
+        decode_push_mode_message(&[0xF0, 0x00, 0x21, 0x1D, 0x01, 0x01, 0x0B, 0x01, 0xF7]),
+        None
+    );
 }
 
 #[test]

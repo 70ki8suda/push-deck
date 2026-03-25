@@ -1,6 +1,7 @@
 pub mod colors;
 pub mod discovery;
 pub mod input;
+pub mod mode;
 pub mod output;
 pub mod push3;
 
@@ -16,6 +17,7 @@ pub use input::{
     subscribe_push3_user_port_runtime_events, Push3InputSourceDescriptor,
     Push3InputSubscription,
 };
+pub use mode::{decode_push_mode_message, PushModeEvent};
 pub use output::{
     encode_led_command_word, render_config_pad_led_commands, NoopPush3LedBackend,
     Push3LedBackend, Push3LedError, SystemPush3LedBackend,
