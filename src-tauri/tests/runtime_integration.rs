@@ -13,11 +13,13 @@ use push_deck::macos::{ActionBackend, MacosError};
 use push_deck::device::output::{Push3LedBackend, Push3LedError};
 use push_deck::{
     handle_push_mode_event_with, handle_runtime_pad_input_message, refresh_runtime_with_fallback,
-    should_hide_on_close,
+    run_on_background_thread, should_hide_on_close,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[test]
 fn first_launch_creates_default_config_and_waits_for_device() {
@@ -329,6 +331,78 @@ fn failed_fast_resume_falls_back_without_panicking() {
 
     assert_eq!(*fallback_calls.lock().expect("lock fallback calls"), 1);
     assert!(led_backend.synced_configs().is_empty());
+}
+
+#[test]
+fn user_mode_button_press_retries_fast_resume_before_fallback() {
+    let backend = TestConfigStoreBackend::default();
+    let store = ConfigStore::with_backend(path("config.json"), backend);
+    let led_backend = TestLedBackend::default();
+    let host = CommandHost::bootstrap_with_led_backend(
+        store,
+        TestActionBackend::default(),
+        led_backend.clone(),
+    )
+    .expect("bootstrap should succeed");
+    let app = tauri::test::mock_app();
+    let attempts = Arc::new(Mutex::new(0usize));
+    let fallback_calls = Arc::new(Mutex::new(0usize));
+
+    handle_push_mode_event_with(
+        &app.handle(),
+        &host,
+        PushModeEvent::UserModeButtonPressed,
+        {
+            let attempts = attempts.clone();
+            move |_| {
+                let mut attempts = attempts.lock().expect("lock attempts");
+                *attempts += 1;
+                Ok(*attempts >= 3)
+            }
+        },
+        {
+            let fallback_calls = fallback_calls.clone();
+            move || {
+                *fallback_calls.lock().expect("lock fallback calls") += 1;
+                Ok(())
+            }
+        },
+    )
+    .expect("event handler should succeed");
+
+    assert_eq!(*attempts.lock().expect("lock attempts"), 3);
+    assert_eq!(*fallback_calls.lock().expect("lock fallback calls"), 0);
+    assert_eq!(led_backend.synced_configs().len(), 1);
+}
+
+#[test]
+fn background_task_dispatch_returns_before_the_task_finishes() {
+    let (started_tx, started_rx) = mpsc::channel();
+    let (finished_tx, finished_rx) = mpsc::channel();
+    let started_at = Instant::now();
+
+    let handle = run_on_background_thread(move || {
+        started_tx.send(()).expect("task should signal start");
+        std::thread::sleep(Duration::from_millis(150));
+        finished_tx.send(()).expect("task should signal finish");
+    });
+
+    started_rx
+        .recv_timeout(Duration::from_millis(50))
+        .expect("task should start promptly");
+    assert!(
+        finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+        "background task should still be running while the caller continues",
+    );
+    assert!(
+        started_at.elapsed() < Duration::from_millis(100),
+        "dispatch should return without waiting for task completion",
+    );
+
+    handle.join().expect("background task should finish cleanly");
+    finished_rx
+        .recv_timeout(Duration::from_millis(50))
+        .expect("task should eventually finish");
 }
 
 #[test]

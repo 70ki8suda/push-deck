@@ -1,7 +1,7 @@
-use tauri::{Manager, Runtime};
+use tauri::Runtime;
 
 #[cfg(target_os = "macos")]
-use coremidi::{Client, InputPort, PacketList, Source, Sources};
+use coremidi::{Client, EventList, InputPortWithContext, Protocol, Source, Sources};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushModeEvent {
@@ -14,6 +14,15 @@ pub enum PushModeEvent {
 const USER_MODE_CONTROLLER: u8 = 0x3B;
 const PUSH_MODE_ENTERED_SYSEX: [u8; 9] = [0xF0, 0x00, 0x21, 0x1D, 0x01, 0x01, 0x0A, 0x01, 0xF7];
 const PUSH_MODE_EXITED_SYSEX: [u8; 9] = [0xF0, 0x00, 0x21, 0x1D, 0x01, 0x01, 0x0A, 0x00, 0xF7];
+
+#[cfg(target_os = "macos")]
+type SystemModeInputPort<R> = InputPortWithContext<Push3ModeContext<R>>;
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Debug)]
+struct Push3ModeContext<R: Runtime> {
+    app_handle: tauri::AppHandle<R>,
+}
 
 pub fn decode_push_mode_message(bytes: &[u8]) -> Option<PushModeEvent> {
     match bytes {
@@ -29,23 +38,44 @@ pub fn decode_push_mode_message(bytes: &[u8]) -> Option<PushModeEvent> {
     }
 }
 
+pub fn decode_midi1_push_mode_word(word: u32) -> Option<PushModeEvent> {
+    let message_type = ((word >> 28) & 0x0f) as u8;
+    if message_type != 0x2 {
+        return None;
+    }
+
+    let status = ((word >> 16) & 0xff) as u8;
+    let controller = ((word >> 8) & 0xff) as u8;
+    let value = (word & 0xff) as u8;
+
+    match status & 0xf0 {
+        0xB0 if controller == USER_MODE_CONTROLLER && value == 0x7F => {
+            Some(PushModeEvent::UserModeButtonPressed)
+        }
+        0xB0 if controller == USER_MODE_CONTROLLER && value == 0x00 => {
+            Some(PushModeEvent::UserModeButtonReleased)
+        }
+        _ => None,
+    }
+}
+
 #[derive(Debug)]
-pub enum Push3ModeSubscription {
-    Active(Push3ModeConnection),
+pub enum Push3ModeSubscription<R: Runtime> {
+    Active(Push3ModeConnection<R>),
     NotConnected,
 }
 
 #[cfg(target_os = "macos")]
 #[derive(Debug)]
-pub struct Push3ModeConnection {
+pub struct Push3ModeConnection<R: Runtime> {
     _client: Client,
-    _input_port: InputPort,
+    _input_port: SystemModeInputPort<R>,
     _sources: Vec<Source>,
 }
 
 #[cfg(not(target_os = "macos"))]
 #[derive(Debug)]
-pub struct Push3ModeConnection;
+pub struct Push3ModeConnection<R: Runtime>(std::marker::PhantomData<R>);
 
 pub fn is_push3_mode_port_display_name(display_name: &str) -> bool {
     let normalized = display_name.to_ascii_lowercase();
@@ -56,7 +86,7 @@ pub fn is_push3_mode_port_display_name(display_name: &str) -> bool {
 #[cfg(target_os = "macos")]
 pub fn subscribe_push3_mode_runtime_events<R: Runtime>(
     app: &tauri::AppHandle<R>,
-) -> Result<Push3ModeSubscription, String> {
+) -> Result<Push3ModeSubscription<R>, String> {
     let sources: Vec<Source> = Sources
         .into_iter()
         .filter(|source| {
@@ -73,21 +103,33 @@ pub fn subscribe_push3_mode_runtime_events<R: Runtime>(
 
     let client = Client::new("push-deck-mode")
         .map_err(|status| format!("failed to create CoreMIDI mode client: {status}"))?;
-    let app_handle = app.clone();
-    let input_port = client
-        .input_port("push-deck-mode-port", move |packet_list: &PacketList| {
-            for packet in packet_list {
-                if let Some(event) = decode_push_mode_message(packet.data()) {
-                    let host = app_handle.state::<crate::commands::DefaultCommandHost>();
-                    let _ = crate::handle_push_mode_event(&app_handle, &host, event);
+    let mut input_port = client
+        .input_port_with_protocol(
+            "push-deck-mode-port",
+            Protocol::Midi10,
+            move |event_list: &EventList, context: &mut Push3ModeContext<R>| {
+                for packet in event_list {
+                    for word in packet.data() {
+                        if let Some(event) = decode_midi1_push_mode_word(*word) {
+                            crate::schedule_push_mode_event_handling(
+                                context.app_handle.clone(),
+                                event,
+                            );
+                        }
+                    }
                 }
-            }
-        })
+            },
+        )
         .map_err(|status| format!("failed to create CoreMIDI mode input port: {status}"))?;
 
     for source in &sources {
         input_port
-            .connect_source(source)
+            .connect_source(
+                source,
+                Push3ModeContext {
+                    app_handle: app.clone(),
+                },
+            )
             .map_err(|status| format!("failed to connect CoreMIDI mode source: {status}"))?;
     }
 
@@ -101,6 +143,6 @@ pub fn subscribe_push3_mode_runtime_events<R: Runtime>(
 #[cfg(not(target_os = "macos"))]
 pub fn subscribe_push3_mode_runtime_events<R: Runtime>(
     _app: &tauri::AppHandle<R>,
-) -> Result<Push3ModeSubscription, String> {
+) -> Result<Push3ModeSubscription<R>, String> {
     Ok(Push3ModeSubscription::NotConnected)
 }

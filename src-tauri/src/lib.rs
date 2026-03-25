@@ -23,7 +23,12 @@ use crate::events::{emit_runtime_event, RuntimeEvent};
 use crate::macos::ActionBackend;
 use std::error::Error;
 use std::sync::Mutex;
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use tauri::Manager;
+
+const FAST_RESUME_RETRY_ATTEMPTS: usize = 3;
+const FAST_RESUME_RETRY_DELAY: Duration = Duration::from_millis(75);
 
 #[derive(Debug, Default, Clone, Copy)]
 struct NullDiscoverySource;
@@ -135,7 +140,7 @@ pub fn store_push3_input_subscription<R: tauri::Runtime>(
 
 pub fn store_push3_mode_subscription<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
-    subscription: Push3ModeSubscription,
+    subscription: Push3ModeSubscription<R>,
 ) -> bool {
     let connection = match subscription {
         Push3ModeSubscription::Active(connection) => Some(connection),
@@ -146,11 +151,51 @@ pub fn store_push3_mode_subscription<R: tauri::Runtime>(
     managed
 }
 
+pub fn run_on_background_thread<F>(task: F) -> JoinHandle<()>
+where
+    F: FnOnce() + Send + 'static,
+{
+    thread::spawn(task)
+}
+
+pub fn schedule_push_mode_event_handling<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    event: PushModeEvent,
+) {
+    run_on_background_thread(move || {
+        let host = app.state::<DefaultCommandHost>();
+        if let Err(error) = handle_push_mode_event(&app, &host, event) {
+            eprintln!("push mode handling failed: {error}");
+        }
+    });
+}
+
 fn fast_resume_push3_input_subscription<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<bool, String> {
     let subscription = subscribe_push3_user_port_runtime_events(app)?;
     Ok(store_push3_input_subscription(app, subscription))
+}
+
+fn retry_fast_resume<R, RF>(
+    app: &tauri::AppHandle<R>,
+    fast_resume: &mut RF,
+) -> Result<bool, String>
+where
+    R: tauri::Runtime,
+    RF: FnMut(&tauri::AppHandle<R>) -> Result<bool, String>,
+{
+    for attempt in 0..FAST_RESUME_RETRY_ATTEMPTS {
+        if fast_resume(app)? {
+            return Ok(true);
+        }
+
+        if attempt + 1 < FAST_RESUME_RETRY_ATTEMPTS {
+            thread::sleep(FAST_RESUME_RETRY_DELAY);
+        }
+    }
+
+    Ok(false)
 }
 
 pub fn handle_push_mode_event_with<R, RF, FF>(
@@ -171,7 +216,7 @@ where
 {
     match event {
         PushModeEvent::UserModeButtonPressed | PushModeEvent::UserModeEntered => {
-            match fast_resume(app) {
+            match retry_fast_resume(app, &mut fast_resume) {
                 Ok(true) => {
                     host.sync_push3_leds().map_err(|error| error.to_string())?;
                     emit_runtime_snapshot(app, host).map_err(|error| error.to_string())?;
